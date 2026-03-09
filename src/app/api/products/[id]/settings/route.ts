@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUserFromRequest } from "@/lib/auth";
 import { updateProductSettings } from "@/lib/db";
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
-    const user = await getUserFromRequest(req);
+    const { id } = await params;
     const data = await req.json();
-    const updated = await updateProductSettings(params.id, data);
+    const updated = await updateProductSettings(id, data);
     return NextResponse.json(updated);
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
