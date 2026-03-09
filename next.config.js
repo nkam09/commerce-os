@@ -1,12 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Required for Render deployment
-  output: "standalone",
-  
-  // Suppress build warnings for dynamic API routes
-  experimental: {
-    serverComponentsExternalPackages: ["@prisma/client"],
-  },
-};
+  output: 'standalone',
+  serverExternalPackages: ['@prisma/client'],
+}
 
-module.exports = nextConfig;
+module.exports = nextConfig
