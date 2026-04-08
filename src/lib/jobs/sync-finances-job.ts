@@ -14,8 +14,8 @@
 
 import { getSpClientForUser } from "@/lib/amazon/get-sp-client-for-user";
 import { flattenFinancialEvents } from "@/lib/amazon/financial-event-flattener";
-import { transformFinancialEventsToFeeRows } from "@/lib/amazon/financial-events-transformer";
-import { normalizeFeeRows } from "@/lib/sync/financial-normalization-service";
+import { transformFinancialEventsToFeeRows, transformFinancialEventsToRefundRows } from "@/lib/amazon/financial-events-transformer";
+import { normalizeFeeRows, normalizeRefundRows } from "@/lib/sync/financial-normalization-service";
 import { loadLookupMaps } from "@/lib/sync/sales-normalization-service";
 import {
   getCursor,
@@ -41,6 +41,7 @@ export async function syncFinancesJob(ctx: JobContext): Promise<JobResult> {
 
     let totalFetched = 0;
     let totalWritten = 0;
+    let totalRefundsWritten = 0;
     let nextToken: string | undefined;
     const newCursor = new Date().toISOString();
 
@@ -54,9 +55,9 @@ export async function syncFinancesJob(ctx: JobContext): Promise<JobResult> {
       nextToken = page.NextToken;
 
       const shipmentCount = (events.ShipmentEventList ?? []).length;
-      const refundCount = (events.RefundEventList ?? []).length;
+      const refundEventCount = (events.RefundEventList ?? []).length;
       const serviceFeeCount = (events.ServiceFeeEventList ?? []).length;
-      totalFetched += shipmentCount + refundCount + serviceFeeCount;
+      totalFetched += shipmentCount + refundEventCount + serviceFeeCount;
 
       // Log UNKNOWN-asin flat events before aggregation so all identifiers are visible
       const flatEvents = flattenFinancialEvents(events);
@@ -72,17 +73,31 @@ export async function syncFinancesJob(ctx: JobContext): Promise<JobResult> {
         }
       }
 
+      // ── Fee pipeline (existing) ─────────────────────────────────────────
       const feeRows = transformFinancialEventsToFeeRows(events, ctx.marketplace.code);
       const result = await normalizeFeeRows(feeRows, maps);
       totalWritten += result.written;
 
       if (result.skippedUnknownAsin > 0) {
-        console.log(`[sync-finances] skipped ${result.skippedUnknownAsin} aggregated rows with unknown ASINs:`);
+        console.log(`[sync-finances] skipped ${result.skippedUnknownAsin} aggregated fee rows with unknown ASINs:`);
         for (const r of result.skippedRows) {
           console.log(`  asin=${r.asin} marketplace=${r.marketplaceCode} date=${r.date}`);
         }
       }
+
+      // ── Refund pipeline (new) ───────────────────────────────────────────
+      const refundRows = transformFinancialEventsToRefundRows(events, ctx.marketplace.code);
+      if (refundRows.length > 0) {
+        const refundResult = await normalizeRefundRows(refundRows, maps);
+        totalRefundsWritten += refundResult.written;
+        console.log(
+          `[sync-finances] refunds: ${refundRows.length} raw rows → ${refundResult.written} written` +
+          (refundResult.skippedUnknownAsin > 0 ? `, ${refundResult.skippedUnknownAsin} skipped (unknown ASIN)` : "")
+        );
+      }
     } while (nextToken);
+
+    console.log(`[sync-finances] totals: ${totalWritten} fee rows, ${totalRefundsWritten} refund rows written`);
 
     await updateCursor(ctx.spConnectionId, JOB_NAME, newCursor);
 

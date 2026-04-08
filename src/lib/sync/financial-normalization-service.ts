@@ -12,7 +12,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
-import type { RawFeeRow } from "@/lib/amazon/financial-events-transformer";
+import type { RawFeeRow, RawRefundRow } from "@/lib/amazon/financial-events-transformer";
 import type { LookupMaps } from "@/lib/sync/sales-normalization-service";
 
 export type SkippedFeeRow = {
@@ -101,4 +101,76 @@ export async function normalizeFeeRows(
   }
 
   return { written, skippedUnknownAsin, skippedRows, skippedUnknownMarketplace };
+}
+
+// ─── Refund normalization ───────────────────────────────────────────────────
+
+export type RefundNormResult = {
+  written: number;
+  skippedUnknownAsin: number;
+  skippedUnknownMarketplace: number;
+};
+
+/**
+ * Upserts refund data into DailySale.
+ * Only touches refundCount and refundAmount — does NOT overwrite grossSales/unitsSold/orderCount.
+ *
+ * Unique key: (productId, marketplaceId, date).
+ */
+export async function normalizeRefundRows(
+  rows: RawRefundRow[],
+  maps: LookupMaps
+): Promise<RefundNormResult> {
+  let written = 0;
+  let skippedUnknownAsin = 0;
+  let skippedUnknownMarketplace = 0;
+
+  for (const row of rows) {
+    // Resolve productId: try ASIN first, then SKU fallback
+    let productId: string | undefined;
+
+    if (row.asin && row.asin !== "UNKNOWN") {
+      productId = maps.asinToProductId.get(row.asin);
+    }
+
+    if (!productId && row.sku) {
+      productId = maps.skuToProductId.get(row.sku);
+    }
+
+    if (!productId) {
+      skippedUnknownAsin++;
+      continue;
+    }
+
+    const marketplaceId = maps.codeToMarketplaceId.get(row.marketplaceCode);
+    if (!marketplaceId) { skippedUnknownMarketplace++; continue; }
+
+    await prisma.dailySale.upsert({
+      where: {
+        productId_marketplaceId_date: {
+          productId,
+          marketplaceId,
+          date: row.date,
+        },
+      },
+      create: {
+        productId,
+        marketplaceId,
+        date: row.date,
+        unitsSold: 0,
+        orderCount: 0,
+        grossSales: 0,
+        refundCount: row.refundCount,
+        refundAmount: row.refundAmount,
+      },
+      update: {
+        refundCount: row.refundCount,
+        refundAmount: row.refundAmount,
+      },
+    });
+
+    written++;
+  }
+
+  return { written, skippedUnknownAsin, skippedUnknownMarketplace };
 }
