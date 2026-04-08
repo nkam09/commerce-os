@@ -81,8 +81,8 @@ async function estimateRefundAmount(
     select: { grossSales: true, unitsSold: true },
   });
 
-  if (sameDayRow && sameDayRow.unitsSold > 0 && sameDayRow.grossSales > 0) {
-    const unitPrice = sameDayRow.grossSales / sameDayRow.unitsSold;
+  if (sameDayRow && sameDayRow.unitsSold > 0 && Number(sameDayRow.grossSales) > 0) {
+    const unitPrice = Number(sameDayRow.grossSales) / sameDayRow.unitsSold;
     return Math.round(refundCount * unitPrice * 100) / 100;
   }
 
@@ -101,7 +101,7 @@ async function estimateRefundAmount(
   });
 
   if (recentSales.length > 0) {
-    const totalGross = recentSales.reduce((sum, r) => sum + r.grossSales, 0);
+    const totalGross = recentSales.reduce((sum, r) => sum + Number(r.grossSales), 0);
     const totalUnits = recentSales.reduce((sum, r) => sum + r.unitsSold, 0);
     if (totalUnits > 0) {
       const avgUnitPrice = totalGross / totalUnits;
