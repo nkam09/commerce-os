@@ -12,7 +12,8 @@
  *   2. sync-finances   — build DailyFee
  *   3. sync-inventory  — build InventorySnapshot
  *   4. sync-ads        — build DailyAd
- *   5. sync-health-refresh — update connection statuses
+ *   5. sync-returns    — build DailySale.refundCount/refundAmount from return reports
+ *   6. sync-health-refresh — update connection statuses
  *
  * Catalog sync is excluded from the regular loop — run it separately on demand.
  *
@@ -29,6 +30,7 @@ import { syncFinancesJob } from "@/lib/jobs/sync-finances-job";
 import { syncInventoryJob } from "@/lib/jobs/sync-inventory-job";
 import { syncAdsProductsJob } from "@/lib/jobs/sync-ads-products-job";
 import { syncAdsKeywordsJob } from "@/lib/jobs/sync-ads-keywords-job";
+import { syncReturnsJob } from "@/lib/jobs/sync-returns-job";
 import { runRecompute, refreshSyncHealth } from "@/lib/services/recompute-orchestration-service";
 
 const INTERVAL_MS = parseInt(process.env.WORKER_INTERVAL_MS ?? "3600000", 10); // default 1 hour
@@ -43,6 +45,7 @@ async function runAllJobs(): Promise<void> {
     { name: "sync-inventory", fn: () => syncInventoryJob(ctx) },
     { name: "sync-ads-products", fn: () => syncAdsProductsJob(ctx) },
     { name: "sync-ads-keywords", fn: () => syncAdsKeywordsJob(ctx) },
+    { name: "sync-returns", fn: () => syncReturnsJob(ctx) },
   ];
 
   for (const job of jobs) {
