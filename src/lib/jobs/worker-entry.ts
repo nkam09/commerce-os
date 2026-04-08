@@ -12,8 +12,9 @@
  *   2. sync-finances   — build DailyFee
  *   3. sync-inventory  — build InventorySnapshot
  *   4. sync-ads        — build DailyAd
- *   5. sync-returns    — build DailySale.refundCount/refundAmount from return reports
- *   6. sync-health-refresh — update connection statuses
+ *   5. sync-returns    — build DailySale.refundCount from return reports
+ *   6. sync-settlement-refunds — build DailySale.refundAmount from settlement reports
+ *   7. sync-health-refresh — update connection statuses
  *
  * Catalog sync is excluded from the regular loop — run it separately on demand.
  *
@@ -31,6 +32,7 @@ import { syncInventoryJob } from "@/lib/jobs/sync-inventory-job";
 import { syncAdsProductsJob } from "@/lib/jobs/sync-ads-products-job";
 import { syncAdsKeywordsJob } from "@/lib/jobs/sync-ads-keywords-job";
 import { syncReturnsJob } from "@/lib/jobs/sync-returns-job";
+import { syncSettlementRefundsJob } from "@/lib/jobs/sync-settlement-refunds-job";
 import { runRecompute, refreshSyncHealth } from "@/lib/services/recompute-orchestration-service";
 
 const INTERVAL_MS = parseInt(process.env.WORKER_INTERVAL_MS ?? "3600000", 10); // default 1 hour
@@ -46,6 +48,7 @@ async function runAllJobs(): Promise<void> {
     { name: "sync-ads-products", fn: () => syncAdsProductsJob(ctx) },
     { name: "sync-ads-keywords", fn: () => syncAdsKeywordsJob(ctx) },
     { name: "sync-returns", fn: () => syncReturnsJob(ctx) },
+    { name: "sync-settlement-refunds", fn: () => syncSettlementRefundsJob(ctx) },
   ];
 
   for (const job of jobs) {

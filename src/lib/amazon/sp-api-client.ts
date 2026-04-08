@@ -515,6 +515,62 @@ if (params.nextToken) query.nextToken = params.nextToken;
     return res.text();
   }
 
+  // ─── Report Listing ──────────────────────────────────────────────────────
+
+  /**
+   * Lists reports matching the given filters.
+   * Settlement reports (GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE) are
+   * Amazon-generated and cannot be requested on demand — they must be
+   * listed and then downloaded.
+   *
+   * Returns up to 100 reports per page. Follow nextToken for more.
+   */
+  async getReports(params: {
+    reportTypes: string[];
+    createdSince?: string;
+    createdUntil?: string;
+    marketplaceIds?: string[];
+    nextToken?: string;
+    pageSize?: number;
+  }): Promise<{
+    reports: Array<{
+      reportId: string;
+      reportType: string;
+      processingStatus: string;
+      reportDocumentId?: string;
+      dataStartTime?: string;
+      dataEndTime?: string;
+      createdTime: string;
+      marketplaceIds?: string[];
+    }>;
+    nextToken?: string;
+  }> {
+    const query: Record<string, string> = {
+      reportTypes: params.reportTypes.join(","),
+    };
+    if (params.createdSince) query.createdSince = params.createdSince;
+    if (params.createdUntil) query.createdUntil = params.createdUntil;
+    if (params.marketplaceIds?.length) {
+      query.marketplaceIds = params.marketplaceIds.join(",");
+    }
+    if (params.nextToken) query.nextToken = params.nextToken;
+    if (params.pageSize) query.pageSize = String(params.pageSize);
+
+    return this.request<{
+      reports: Array<{
+        reportId: string;
+        reportType: string;
+        processingStatus: string;
+        reportDocumentId?: string;
+        dataStartTime?: string;
+        dataEndTime?: string;
+        createdTime: string;
+        marketplaceIds?: string[];
+      }>;
+      nextToken?: string;
+    }>("GET", "/reports/2021-06-30/reports", query);
+  }
+
   // ─── Catalog Items ───────────────────────────────────────────────────────
 
   async getCatalogItem(asin: string, marketplaceId: string): Promise<Record<string, unknown>> {
