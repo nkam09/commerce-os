@@ -1,0 +1,39 @@
+# dependencies
+node_modules/
+.npm
+
+# next.js
+.next/
+out/
+
+# env files — NEVER commit these
+.env
+.env.local
+.env.production
+.env.*.local
+
+# prisma
+prisma/migrations/migration_lock.toml
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# misc
+.DS_Store
+*.pem
+*.tsbuildinfo
+
+# temp scripts
+check-*.js
+create-*.js
+delete-*.js
+find-*.js
+fix-*.js
+seed-*.js
+poll-*.js
+clear-*.js
+
+# worktrees
+.claude/

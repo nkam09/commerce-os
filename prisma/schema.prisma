@@ -1,0 +1,700 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum SyncConnectionStatus {
+  ACTIVE
+  INACTIVE
+  ERROR
+}
+
+enum SyncJobRunStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+  PARTIAL
+}
+
+enum InsightSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum InsightStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+enum InsightScope {
+  PRODUCT
+  INVENTORY
+  CASHFLOW
+  SYNC
+  GLOBAL
+}
+
+enum InsightType {
+  REORDER_ALERT
+  STOCKOUT_RISK
+  CASHFLOW_RISK
+  SYNC_FAILURE
+  MARGIN_ALERT
+  GENERAL
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  CONFIRMED
+  DEPOSITED
+  IN_PRODUCTION
+  SHIPPED
+  RECEIVED
+  CANCELLED
+  ARCHIVED
+}
+
+enum ShipmentMode {
+  AIR
+  SEA
+  GROUND
+  EXPRESS
+}
+
+enum ShipmentStage {
+  PREPARING
+  PICKED_UP
+  IN_TRANSIT
+  CUSTOMS
+  ARRIVED
+  DELIVERED
+  CANCELLED
+}
+
+enum ExpenseFrequency {
+  ONE_TIME
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  ANNUALLY
+}
+
+enum ProjectStatus {
+  BACKLOG
+  IN_PROGRESS
+  BLOCKED
+  COMPLETE
+  ARCHIVED
+}
+
+// ─── Models ───────────────────────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  clerkId   String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  marketplaces      Marketplace[]
+  products          Product[]
+  purchaseOrders    PurchaseOrder[]
+  shipments         Shipment[]
+  expenses          Expense[]
+  projects          Project[]
+  syncConnections   SyncConnection[]
+  aiInsights        AIInsight[]
+  trackedKeywords   TrackedKeyword[]
+  restockProfiles   RestockProfile[]
+  settlements       Settlement[]
+  cashflowScenarios CashflowScenario[]
+  pmSpaces          PMSpace[]
+
+  @@map("users")
+}
+
+model Marketplace {
+  id        String   @id @default(cuid())
+  userId    String
+  code      String   // e.g. "ATVPDKIKX0DER" (US)
+  name      String   // e.g. "Amazon US"
+  region    String   @default("us-east-1")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dailySales   DailySale[]
+  dailyFees    DailyFee[]
+  dailyAds          DailyAd[]
+  dailyKeywords     DailyKeyword[]
+  dailySearchTerms  DailySearchTerm[]
+  inventories       InventorySnapshot[]
+
+  @@unique([userId, code])
+  @@map("marketplaces")
+}
+
+model Product {
+  id          String        @id @default(cuid())
+  userId      String
+  asin        String
+  sku         String?
+  fnsku       String?
+  title       String?
+  brand       String?
+  category    String?
+  imageUrl    String?
+  status      ProductStatus @default(ACTIVE)
+  archivedAt  DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  setting            ProductSetting?
+  dailySales         DailySale[]
+  dailyFees          DailyFee[]
+  dailyAds           DailyAd[]
+  dailyKeywords      DailyKeyword[]
+  dailySearchTerms   DailySearchTerm[]
+  inventorySnapshots InventorySnapshot[]
+  reimbursements     Reimbursement[]
+  aiInsights         AIInsight[]
+
+  @@unique([userId, asin])
+  @@map("products")
+}
+
+model ProductSetting {
+  id                  String   @id @default(cuid())
+  productId           String   @unique
+  landedCogs          Decimal? @db.Decimal(10, 4)
+  freightCost         Decimal? @db.Decimal(10, 4)
+  prepCost            Decimal? @db.Decimal(10, 4)
+  overheadCost        Decimal? @db.Decimal(10, 4)
+  safetyStockDays     Int?
+  productionLeadDays  Int?
+  shippingLeadDays    Int?
+  receivingBufferDays Int?
+  reorderCoverageDays Int?
+  reorderMinQty       Int?
+  reorderCasePack     Int?
+  targetMarginPct     Decimal? @db.Decimal(6, 4)
+  targetAcosPct       Decimal? @db.Decimal(6, 4)
+  targetTacosPct      Decimal? @db.Decimal(6, 4)
+  notes               String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("product_settings")
+}
+
+model DailySale {
+  id            String   @id @default(cuid())
+  productId     String
+  marketplaceId String
+  date          DateTime @db.Date
+  unitsSold     Int      @default(0)
+  orderCount    Int      @default(0)
+  grossSales    Decimal  @default(0) @db.Decimal(14, 4)
+  refundCount   Int      @default(0)
+  refundAmount  Decimal  @default(0) @db.Decimal(14, 4)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  product     Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  marketplace Marketplace @relation(fields: [marketplaceId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, marketplaceId, date])
+  @@map("daily_sales")
+}
+
+model DailyFee {
+  id                    String   @id @default(cuid())
+  productId             String
+  marketplaceId         String
+  date                  DateTime @db.Date
+  referralFee           Decimal  @default(0) @db.Decimal(14, 4)
+  fbaFee                Decimal  @default(0) @db.Decimal(14, 4)
+  storageFee            Decimal  @default(0) @db.Decimal(14, 4)
+  returnProcessingFee   Decimal  @default(0) @db.Decimal(14, 4)
+  otherFees             Decimal  @default(0) @db.Decimal(14, 4)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  product     Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  marketplace Marketplace @relation(fields: [marketplaceId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, marketplaceId, date])
+  @@map("daily_fees")
+}
+
+model DailyAd {
+  id              String   @id @default(cuid())
+  productId       String
+  marketplaceId   String
+  date            DateTime @db.Date
+  campaignName    String?
+  spend           Decimal  @default(0) @db.Decimal(14, 4)
+  attributedSales Decimal  @default(0) @db.Decimal(14, 4)
+  clicks          Int      @default(0)
+  impressions     Int      @default(0)
+  orders          Int      @default(0)
+  acos            Decimal? @db.Decimal(8, 4)
+  roas            Decimal? @db.Decimal(8, 4)
+  cpc             Decimal? @db.Decimal(10, 4)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  product     Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  marketplace Marketplace @relation(fields: [marketplaceId], references: [id], onDelete: Cascade)
+
+  @@map("daily_ads")
+}
+
+model DailyKeyword {
+  id              String   @id @default(cuid())
+  productId       String
+  marketplaceId   String
+  date            DateTime @db.Date
+  campaignName    String?
+  campaignId      String?
+  adGroupName     String?
+  adGroupId       String?
+  keywordId       String?
+  keywordText     String?
+  matchType       String?
+  keywordType     String?
+  bid             Decimal? @db.Decimal(10, 4)
+  spend           Decimal  @default(0) @db.Decimal(14, 4)
+  attributedSales Decimal  @default(0) @db.Decimal(14, 4)
+  clicks          Int      @default(0)
+  impressions     Int      @default(0)
+  orders          Int      @default(0)
+  acos            Decimal? @db.Decimal(8, 4)
+  roas            Decimal? @db.Decimal(8, 4)
+  cpc             Decimal? @db.Decimal(10, 4)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  product     Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  marketplace Marketplace @relation(fields: [marketplaceId], references: [id], onDelete: Cascade)
+
+  @@map("daily_keywords")
+}
+
+model DailySearchTerm {
+  id              String   @id @default(cuid())
+  productId       String
+  marketplaceId   String
+  date            DateTime @db.Date
+  campaignName    String?
+  campaignId      String?
+  adGroupName     String?
+  adGroupId       String?
+  keywordId       String?
+  keywordText     String?
+  matchType       String?
+  searchTerm      String?
+  spend           Decimal  @default(0) @db.Decimal(14, 4)
+  attributedSales Decimal  @default(0) @db.Decimal(14, 4)
+  clicks          Int      @default(0)
+  impressions     Int      @default(0)
+  orders          Int      @default(0)
+  acos            Decimal? @db.Decimal(8, 4)
+  roas            Decimal? @db.Decimal(8, 4)
+  cpc             Decimal? @db.Decimal(10, 4)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  product     Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  marketplace Marketplace @relation(fields: [marketplaceId], references: [id], onDelete: Cascade)
+
+  @@map("daily_search_terms")
+}
+
+model InventorySnapshot {
+  id            String   @id @default(cuid())
+  productId     String
+  marketplaceId String
+  snapshotDate  DateTime @db.Date
+  available     Int      @default(0)
+  reserved      Int      @default(0)
+  inbound       Int      @default(0)
+  awd           Int      @default(0)
+  warehouse     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  product     Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  marketplace Marketplace @relation(fields: [marketplaceId], references: [id], onDelete: Cascade)
+
+  @@map("inventory_snapshots")
+}
+
+model Reimbursement {
+  id            String   @id @default(cuid())
+  productId     String
+  amazonCaseId  String?
+  reason        String?
+  quantity      Int      @default(0)
+  amountTotal   Decimal  @default(0) @db.Decimal(14, 4)
+  reimburseDate DateTime @db.Date
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("reimbursements")
+}
+
+model AIInsight {
+  id        String          @id @default(cuid())
+  userId    String
+  productId String?
+  type      InsightType     @default(GENERAL)
+  scope     InsightScope    @default(GLOBAL)
+  severity  InsightSeverity @default(INFO)
+  status    InsightStatus   @default(OPEN)
+  title     String
+  body      String?
+  metadata  Json?
+  resolvedAt DateTime?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@map("ai_insights")
+}
+
+model SyncConnection {
+  id           String               @id @default(cuid())
+  userId       String
+  name         String
+  type         String               // "SP_API" | "ADS_API"
+  status       SyncConnectionStatus @default(ACTIVE)
+  marketplaceId String?
+  profileId    String?              // Ads profile ID
+  metadata     Json?
+  lastTestedAt DateTime?
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cursors  SyncCursor[]
+  jobRuns  SyncJobRun[]
+
+  @@map("sync_connections")
+}
+
+model SyncCursor {
+  id           String   @id @default(cuid())
+  connectionId String
+  jobName      String
+  cursor       String?  // ISO date string or next token
+  lastRunAt    DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  connection SyncConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, jobName])
+  @@map("sync_cursors")
+}
+
+model SyncJobRun {
+  id           String          @id @default(cuid())
+  connectionId String
+  jobName      String
+  status       SyncJobRunStatus @default(PENDING)
+  fetchedCount Int              @default(0)
+  writtenCount Int              @default(0)
+  errorMessage String?
+  startedAt    DateTime         @default(now())
+  finishedAt   DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  connection SyncConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@map("sync_job_runs")
+}
+
+model PurchaseOrder {
+  id             String              @id @default(cuid())
+  userId         String
+  poNumber       String?
+  supplier       String
+  status         PurchaseOrderStatus @default(DRAFT)
+  totalAmount    Decimal             @default(0) @db.Decimal(14, 2)
+  depositAmount  Decimal             @default(0) @db.Decimal(14, 2)
+  balanceDue     Decimal             @default(0) @db.Decimal(14, 2)
+  currency       String              @default("USD")
+  expectedEta    DateTime?
+  depositPaidAt  DateTime?
+  notes          String?
+  archivedAt     DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("purchase_orders")
+}
+
+model Shipment {
+  id             String        @id @default(cuid())
+  userId         String
+  reference      String?
+  supplier       String?
+  origin         String?
+  destination    String?
+  mode           ShipmentMode  @default(SEA)
+  stage          ShipmentStage @default(PREPARING)
+  carrier        String?
+  trackingNumber String?
+  cartons        Int?
+  units          Int?
+  cbm            Decimal?      @db.Decimal(10, 4)
+  weightKg       Decimal?      @db.Decimal(10, 2)
+  shippingCost   Decimal?      @db.Decimal(14, 2)
+  currency       String        @default("USD")
+  etaDeparture   DateTime?
+  etaArrival     DateTime?
+  notes          String?
+  archivedAt     DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("shipments")
+}
+
+model Expense {
+  id          String           @id @default(cuid())
+  userId      String
+  name        String
+  category    String?
+  amount      Decimal          @default(0) @db.Decimal(14, 2)
+  currency    String           @default("USD")
+  frequency   ExpenseFrequency @default(MONTHLY)
+  effectiveAt DateTime         @db.Date
+  endsAt      DateTime?        @db.Date
+  vendor      String?
+  notes       String?
+  archivedAt  DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("expenses")
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  userId      String
+  title       String
+  description String?
+  status      ProjectStatus @default(BACKLOG)
+  owner       String?
+  dueDate     DateTime?     @db.Date
+  priority    Int           @default(0)
+  notes       String?
+  archivedAt  DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("projects")
+}
+
+// ─── Keyword Tracking ────────────────────────────────────────────────────────
+
+model TrackedKeyword {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  asin        String
+  keyword     String
+  isTracking  Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  rankHistory KeywordRank[]
+
+  @@unique([userId, asin, keyword])
+}
+
+model KeywordRank {
+  id               String         @id @default(cuid())
+  trackedKeywordId String
+  trackedKeyword   TrackedKeyword @relation(fields: [trackedKeywordId], references: [id], onDelete: Cascade)
+  date             DateTime
+  organicRank      Int?
+  sponsoredRank    Int?
+  queryVolume      Int?
+  marketConv       Float?
+  asinConv         Float?
+  purchaseShare    Float?
+  ppcSales         Float?
+  ppcAcos          Float?
+  ppcConversion    Float?
+  ppcSpend         Float?
+  ppcUnits         Int?
+  ppcCpc           Float?
+  createdAt        DateTime       @default(now())
+
+  @@unique([trackedKeywordId, date])
+}
+
+// ─── Restock Forecasting ─────────────────────────────────────────────────────
+
+model RestockProfile {
+  id                    String   @id @default(cuid())
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id])
+  name                  String
+  manufacturingDays     Int      @default(30)
+  usePrepCenter         Boolean  @default(false)
+  shippingToPrepDays    Int      @default(0)
+  shippingToFbaDays     Int      @default(35)
+  fbaBufferDays         Int      @default(10)
+  targetStockRangeDays  Int      @default(60)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+// ─── Cashflow ─────────────────────────────────────────────────────────────────
+
+model Settlement {
+  id              String   @id @default(cuid())
+  userId          String
+  periodStart     DateTime @db.Date
+  periodEnd       DateTime @db.Date
+  status          String   // "paid" | "pending" | "projected"
+  grossSales      Float    @default(0)
+  refunds         Float    @default(0)
+  amazonFees      Float    @default(0)
+  adSpend         Float    @default(0)
+  otherDeductions Float    @default(0)
+  netPayout       Float    @default(0)
+  paymentDate     DateTime? @db.Date
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("settlements")
+}
+
+model CashflowScenario {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  inputs    Json
+  outputs   Json
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("cashflow_scenarios")
+}
+
+// ─── Project Manager ──────────────────────────────────────────────────────────
+
+model PMSpace {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  color     String   @default("#3b82f6")
+  order     Int      @default(0)
+  lists     PMList[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("pm_spaces")
+}
+
+model PMList {
+  id        String   @id @default(cuid())
+  name      String
+  spaceId   String
+  space     PMSpace  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  order     Int      @default(0)
+  statuses  Json     @default("[\"To Do\",\"In Progress\",\"Review\",\"Done\"]")
+  tasks     PMTask[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("pm_lists")
+}
+
+model PMTask {
+  id          String      @id @default(cuid())
+  title       String
+  description String?     @db.Text
+  status      String      @default("To Do")
+  priority    String      @default("Medium")
+  dueDate     DateTime?   @db.Date
+  startDate   DateTime?   @db.Date
+  tags        Json        @default("[]")
+  order       Int         @default(0)
+  listId      String
+  list        PMList      @relation(fields: [listId], references: [id], onDelete: Cascade)
+  subtasks    PMSubtask[]
+  comments    PMComment[]
+  aiGenerated Boolean     @default(false)
+  aiSource    String?
+  asinRef     String?
+  campaignRef String?
+  completedAt DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@map("pm_tasks")
+}
+
+model PMSubtask {
+  id        String   @id @default(cuid())
+  title     String
+  completed Boolean  @default(false)
+  order     Int      @default(0)
+  taskId    String
+  task      PMTask   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@map("pm_subtasks")
+}
+
+model PMComment {
+  id        String   @id @default(cuid())
+  content   String   @db.Text
+  taskId    String
+  task      PMTask   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@map("pm_comments")
+}

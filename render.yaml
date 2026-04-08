@@ -1,0 +1,85 @@
+region: virginia
+
+services:
+  - type: web
+    name: commerce-os-web
+    env: node
+    plan: starter
+    buildCommand: npm install && npx prisma generate && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/sync/health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+      - key: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: NEXT_PUBLIC_CLERK_SIGN_IN_URL
+        value: /sign-in
+      - key: NEXT_PUBLIC_CLERK_SIGN_UP_URL
+        value: /sign-up
+      - key: NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL
+        value: /overview
+      - key: NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL
+        value: /overview
+      - key: APP_ENCRYPTION_KEY
+        sync: false
+      - key: AMAZON_SP_API_CLIENT_ID
+        sync: false
+      - key: AMAZON_SP_API_CLIENT_SECRET
+        sync: false
+      - key: AMAZON_SP_API_REFRESH_TOKEN
+        sync: false
+      - key: AMAZON_SP_AWS_ACCESS_KEY
+        sync: false
+      - key: AMAZON_SP_AWS_SECRET_KEY
+        sync: false
+      - key: AMAZON_SP_ROLE_ARN
+        sync: false
+      - key: AMAZON_ADS_CLIENT_ID
+        sync: false
+      - key: AMAZON_ADS_CLIENT_SECRET
+        sync: false
+      - key: AMAZON_ADS_REFRESH_TOKEN
+        sync: false
+      - key: AMAZON_ADS_PROFILE_ID
+        sync: false
+
+  - type: worker
+    name: commerce-os-worker
+    env: node
+    plan: starter
+    buildCommand: npm install && npx prisma generate
+    startCommand: npx tsx src/lib/jobs/worker-entry.ts
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: WORKER_INTERVAL_MS
+        value: "3600000"
+      - key: JOB_USER_ID
+        sync: false
+      - key: APP_ENCRYPTION_KEY
+        sync: false
+      - key: AMAZON_SP_API_CLIENT_ID
+        sync: false
+      - key: AMAZON_SP_API_CLIENT_SECRET
+        sync: false
+      - key: AMAZON_SP_API_REFRESH_TOKEN
+        sync: false
+      - key: AMAZON_SP_AWS_ACCESS_KEY
+        sync: false
+      - key: AMAZON_SP_AWS_SECRET_KEY
+        sync: false
+      - key: AMAZON_SP_ROLE_ARN
+        sync: false
+      - key: AMAZON_ADS_CLIENT_ID
+        sync: false
+      - key: AMAZON_ADS_CLIENT_SECRET
+        sync: false
+      - key: AMAZON_ADS_REFRESH_TOKEN
+        sync: false
+      - key: AMAZON_ADS_PROFILE_ID
+        sync: false
