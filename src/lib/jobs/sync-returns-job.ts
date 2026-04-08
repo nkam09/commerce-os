@@ -187,7 +187,7 @@ async function normalizeReturnRows(
       if (refundAmount > 0) estimated++;
     } else {
       // Keep existing real amount from financial events
-      refundAmount = existing.refundAmount;
+      refundAmount = Number(existing.refundAmount);
     }
 
     await prisma.dailySale.upsert({
