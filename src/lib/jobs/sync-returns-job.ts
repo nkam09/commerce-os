@@ -177,7 +177,7 @@ async function normalizeReturnRows(
     let refundAmount = row.refundAmount; // 0 from the report
 
     // Only estimate if no real refund amount exists yet
-    if (!existing?.refundAmount || existing.refundAmount === 0) {
+    if (!existing?.refundAmount || Number(existing.refundAmount) === 0) {
       refundAmount = await estimateRefundAmount(
         productId,
         marketplaceId,
