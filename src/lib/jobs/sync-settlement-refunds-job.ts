@@ -17,9 +17,11 @@
  * Flow:
  *   1. List settlement reports created since cursor date
  *   2. For each DONE report, download and parse it
- *   3. Extract refund rows (transaction-type="Refund", amount-description="Principal")
- *   4. Resolve SKU → productId (settlements use SKU, not ASIN)
- *   5. Upsert into daily_sales: refundCount + refundAmount
+ *   3. Extract refund rows (transaction-type="Refund", price-type="Principal")
+ *   4. Extract fee adjustments (transaction-type="Refund", item-related-fee-type present)
+ *   5. Resolve SKU → productId (settlements use SKU, not ASIN)
+ *   6. Upsert into daily_sales: refundCount + refundAmount
+ *   7. Apply fee adjustments to daily_fees (reduce fees by credited amounts)
  *
  * Cursor: ISO date string stored in SyncCursor(connectionId, "sync-settlement-refunds").
  * On first run, defaults to 90 days ago.
@@ -31,7 +33,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { getSpClientForUser } from "@/lib/amazon/get-sp-client-for-user";
 import { parseSettlementReport } from "@/lib/amazon/settlement-report-parser";
-import type { RawSettlementRefundRow } from "@/lib/amazon/settlement-report-parser";
+import type { RawSettlementRefundRow, RawSettlementFeeAdjustment } from "@/lib/amazon/settlement-report-parser";
 import { loadLookupMaps } from "@/lib/sync/sales-normalization-service";
 import type { LookupMaps } from "@/lib/sync/sales-normalization-service";
 import {
@@ -117,6 +119,103 @@ async function normalizeSettlementRefundRows(
   return { written, skippedUnknownSku, skippedUnknownMarketplace };
 }
 
+// ─── Fee Adjustment Normalization ────────────────────────────────────────────
+
+type FeeAdjNormResult = {
+  applied: number;
+  skippedNoFeeRow: number;
+  skippedUnknownSku: number;
+  skippedUnknownMarketplace: number;
+};
+
+/**
+ * Applies refund fee adjustments to existing DailyFee rows.
+ *
+ * When Amazon refunds an order, they credit back some of the fees they
+ * originally charged (referral fee, FBA fee, etc.). These credits need
+ * to reduce the fee totals in daily_fees.
+ *
+ * Settlement fee amounts are signed:
+ *   positive = Amazon credits money back to seller (reduces fees)
+ *   negative = Amazon charges back (increases fees, rare)
+ *
+ * DailyFee stores fees as positive values (deductions), so:
+ *   - A positive credit of $4.50 → SUBTRACT from referralFee
+ *   - A negative charge of -$0.90 → ADD to referralFee (abs value)
+ *
+ * Only updates existing fee rows — if no DailyFee exists for that
+ * date, the adjustment is skipped (fees haven't been synced yet).
+ */
+async function applyFeeAdjustments(
+  rows: RawSettlementFeeAdjustment[],
+  maps: LookupMaps
+): Promise<FeeAdjNormResult> {
+  let applied = 0;
+  let skippedNoFeeRow = 0;
+  let skippedUnknownSku = 0;
+  let skippedUnknownMarketplace = 0;
+
+  for (const row of rows) {
+    const productId = maps.skuToProductId.get(row.sku);
+    if (!productId) {
+      skippedUnknownSku++;
+      continue;
+    }
+
+    const marketplaceId = maps.codeToMarketplaceId.get(row.marketplaceCode);
+    if (!marketplaceId) {
+      skippedUnknownMarketplace++;
+      continue;
+    }
+
+    // Only adjust if a fee row exists for this date
+    const existing = await prisma.dailyFee.findUnique({
+      where: {
+        productId_marketplaceId_date: {
+          productId,
+          marketplaceId,
+          date: row.date,
+        },
+      },
+      select: {
+        referralFee: true,
+        fbaFee: true,
+        otherFees: true,
+      },
+    });
+
+    if (!existing) {
+      skippedNoFeeRow++;
+      continue;
+    }
+
+    // Subtract credits from fee totals (positive adj = credit = reduce fee)
+    // Ensure fees don't go below zero
+    const newReferralFee = Math.max(0, Number(existing.referralFee) - row.referralFeeAdj);
+    const newFbaFee = Math.max(0, Number(existing.fbaFee) - row.fbaFeeAdj);
+    const newOtherFees = Math.max(0, Number(existing.otherFees) - row.otherFeeAdj);
+
+    await prisma.dailyFee.update({
+      where: {
+        productId_marketplaceId_date: {
+          productId,
+          marketplaceId,
+          date: row.date,
+        },
+      },
+      data: {
+        referralFee: newReferralFee,
+        fbaFee: newFbaFee,
+        otherFees: newOtherFees,
+      },
+    });
+
+    applied++;
+  }
+
+  return { applied, skippedNoFeeRow, skippedUnknownSku, skippedUnknownMarketplace };
+}
+
 // ─── Main Job ────────────────────────────────────────────────────────────────
 
 export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResult> {
@@ -177,10 +276,12 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
       return { fetchedCount: 0, writtenCount: 0, notes: "no settlement reports found" };
     }
 
-    // Download and parse all reports, collecting refund rows
+    // Download and parse all reports, collecting refund rows and fee adjustments
     const allRefundRows: RawSettlementRefundRow[] = [];
+    const allFeeAdjustments: RawSettlementFeeAdjustment[] = [];
     let totalLines = 0;
     let totalRefundLines = 0;
+    let totalFeeAdjLines = 0;
     let latestCreatedTime = cursor;
 
     for (const report of doneReports) {
@@ -211,13 +312,16 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
       console.log(
         `[sync-settlement-refunds] report ${report.reportId}: ` +
           `settlement=${parsed.settlementId}, ${parsed.totalLines} lines, ` +
-          `${parsed.refundLines} refund lines → ${parsed.refundRows.length} aggregated rows` +
+          `${parsed.refundLines} refund lines → ${parsed.refundRows.length} aggregated rows, ` +
+          `${parsed.feeAdjLines} fee adj lines → ${parsed.feeAdjustments.length} fee adj rows` +
           (parsed.skippedNoSku > 0 ? ` (skipped ${parsed.skippedNoSku} without SKU)` : "")
       );
 
       allRefundRows.push(...parsed.refundRows);
+      allFeeAdjustments.push(...parsed.feeAdjustments);
       totalLines += parsed.totalLines;
       totalRefundLines += parsed.refundLines;
+      totalFeeAdjLines += parsed.feeAdjLines;
 
       // Track the latest report creation time for cursor advancement
       if (report.createdTime > latestCreatedTime) {
@@ -250,9 +354,29 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
       }
     }
 
+    // ── Phase 3: Apply fee adjustments to daily_fees ─────────────────
+
+    let totalFeeAdjApplied = 0;
+
+    if (allFeeAdjustments.length > 0) {
+      console.log(
+        `[sync-settlement-refunds] applying ${allFeeAdjustments.length} fee adjustment rows`
+      );
+
+      const feeResult = await applyFeeAdjustments(allFeeAdjustments, maps);
+      totalFeeAdjApplied = feeResult.applied;
+
+      console.log(
+        `[sync-settlement-refunds] applied ${feeResult.applied} fee adjustments` +
+          (feeResult.skippedNoFeeRow > 0 ? `, skipped ${feeResult.skippedNoFeeRow} (no fee row)` : "") +
+          (feeResult.skippedUnknownSku > 0 ? `, skipped ${feeResult.skippedUnknownSku} (unknown SKU)` : "")
+      );
+    }
+
     console.log(
       `[sync-settlement-refunds] done: ${doneReports.length} reports, ` +
-        `${totalRefundLines} refund lines → ${totalWritten} rows written`
+        `${totalRefundLines} refund lines → ${totalWritten} rows written, ` +
+        `${totalFeeAdjLines} fee adj lines → ${totalFeeAdjApplied} applied`
     );
 
     // Advance cursor to the latest report creation time
@@ -267,7 +391,7 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
       fetchedCount: totalLines,
       writtenCount: totalWritten,
       nextCursor: latestCreatedTime,
-      notes: `${doneReports.length} settlement reports processed, ${totalRefundLines} refund lines`,
+      notes: `${doneReports.length} settlement reports, ${totalRefundLines} refund lines, ${totalFeeAdjApplied} fee adjustments`,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

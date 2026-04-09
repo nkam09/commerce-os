@@ -7,12 +7,12 @@
  * Settlement reports are Amazon's authoritative record of what was
  * actually refunded to customers — this is the same source Sellerboard uses.
  *
- * Filters for rows where:
- *   transaction-type = "Refund"
- *   amount-description = "Principal"
+ * Extracts two things from refund rows (transaction-type = "Refund"):
+ *   1. Refund amounts: price-type = "Principal" → exact item-price refund
+ *   2. Fee adjustments: item-related-fee-type → fee credits Amazon gives back
  *
- * This gives the exact item-price refund amount (what the customer got back),
- * matching Sellerboard's refund numbers.
+ * Refund amounts match Sellerboard's refund numbers.
+ * Fee adjustments reduce the fees in daily_fees (referral fee credits, FBA fee credits).
  *
  * Uses America/Los_Angeles (Pacific time) for date attribution.
  */
@@ -29,10 +29,21 @@ export type RawSettlementRefundRow = {
   refundAmount: number;  // sum of |amount| for Principal refunds
 };
 
+export type RawSettlementFeeAdjustment = {
+  sku: string;
+  marketplaceCode: string;
+  date: Date;
+  referralFeeAdj: number;  // positive = credit back to seller
+  fbaFeeAdj: number;
+  otherFeeAdj: number;
+};
+
 export type SettlementParseResult = {
   refundRows: RawSettlementRefundRow[];
+  feeAdjustments: RawSettlementFeeAdjustment[];
   totalLines: number;
   refundLines: number;
+  feeAdjLines: number;
   skippedNoSku: number;
   settlementId: string;
 };
@@ -106,15 +117,26 @@ function parseTsv(tsv: string): ReportRow[] {
 
 // ─── Main parser ─────────────────────────────────────────────────────────────
 
+// ─── Fee type mapping ────────────────────────────────────────────────────────
+
+function mapFeeType(feeType: string): "referral" | "fba" | "other" {
+  const lower = feeType.toLowerCase();
+  if (lower === "commission") return "referral";
+  if (lower === "fbaperunitfulfillmentfee" || lower === "fbaperorderfulfillmentfee") return "fba";
+  return "other";
+}
+
+// ─── Main parser ─────────────────────────────────────────────────────────────
+
 /**
- * Parses a settlement report to extract refund data.
+ * Parses a settlement report to extract refund data and fee adjustments.
  *
- * Filters for transaction-type = "Refund" and amount-description = "Principal"
- * to get exact item-price refund amounts.
+ * 1. Refund amounts: transaction-type="Refund" + price-type="Principal"
+ *    → exact item-price refund amounts. Aggregated by (sku, marketplace, date).
  *
- * Aggregates by (sku, marketplaceCode, pacificDate).
- * refundCount = count of distinct order-ids per day per SKU.
- * refundAmount = sum of |amount| for Principal refund charges.
+ * 2. Fee adjustments: transaction-type="Refund" + item-related-fee-type present
+ *    → fee credits Amazon gives back on refunds (referral fee, FBA fee, etc.)
+ *    Aggregated by (sku, marketplace, date). Amounts stored as-is (signed).
  *
  * @param reportText - Raw TSV/CSV string from the settlement report
  * @param marketplaceCode - Amazon marketplace ID (e.g. "ATVPDKIKX0DER")
@@ -124,8 +146,10 @@ export function parseSettlementReport(
   marketplaceCode: string
 ): SettlementParseResult {
   const reportRows = parseTsv(reportText);
-  const agg = new Map<string, RawSettlementRefundRow & { orderIds: Set<string> }>();
+  const refundAgg = new Map<string, RawSettlementRefundRow & { orderIds: Set<string> }>();
+  const feeAdjAgg = new Map<string, RawSettlementFeeAdjustment>();
   let refundLines = 0;
+  let feeAdjLines = 0;
   let skippedNoSku = 0;
   let settlementId = "";
 
@@ -136,13 +160,9 @@ export function parseSettlementReport(
     }
 
     const transactionType = (row["transaction-type"] ?? "").trim();
-    const amountDescription = (row["price-type"] ?? "").trim().toLowerCase();
 
-    // Only process refund rows with Principal amount
+    // Only process Refund rows
     if (transactionType !== "Refund") continue;
-    if (amountDescription !== "principal") continue;
-
-    refundLines++;
 
     const sku = (row["sku"] ?? "").trim();
     const postedDate = (row["posted-date"] ?? row["posted-date-time"] ?? "").trim();
@@ -155,40 +175,81 @@ export function parseSettlementReport(
 
     const date = toPacificDateOnly(postedDate);
     const dateStr = dateToStr(date);
-    const amount = Math.abs(parseNumber(row["price-amount"]));
-
     const key = `${sku}::${marketplaceCode}::${dateStr}`;
 
-    if (!agg.has(key)) {
-      agg.set(key, {
-        sku,
-        marketplaceCode,
-        date,
-        refundCount: 0,
-        refundAmount: 0,
-        orderIds: new Set<string>(),
-      });
+    // ── Refund Principal amounts ──
+    const priceType = (row["price-type"] ?? "").trim().toLowerCase();
+    if (priceType === "principal") {
+      refundLines++;
+      const amount = Math.abs(parseNumber(row["price-amount"]));
+
+      if (!refundAgg.has(key)) {
+        refundAgg.set(key, {
+          sku,
+          marketplaceCode,
+          date,
+          refundCount: 0,
+          refundAmount: 0,
+          orderIds: new Set<string>(),
+        });
+      }
+
+      const refundRow = refundAgg.get(key)!;
+      refundRow.refundAmount += amount;
+
+      // Count distinct order-ids as refund units
+      if (orderId && !refundRow.orderIds.has(orderId)) {
+        refundRow.orderIds.add(orderId);
+        refundRow.refundCount++;
+      }
     }
 
-    const refundRow = agg.get(key)!;
-    refundRow.refundAmount += amount;
+    // ── Fee adjustments (credits Amazon gives back on refunds) ──
+    const feeType = (row["item-related-fee-type"] ?? "").trim();
+    const feeAmountRaw = (row["item-related-fee-amount"] ?? "").trim();
 
-    // Count distinct order-ids as refund units
-    if (orderId && !refundRow.orderIds.has(orderId)) {
-      refundRow.orderIds.add(orderId);
-      refundRow.refundCount++;
+    if (feeType && feeAmountRaw) {
+      const feeAmount = parseNumber(feeAmountRaw);
+      if (feeAmount !== 0) {
+        feeAdjLines++;
+
+        if (!feeAdjAgg.has(key)) {
+          feeAdjAgg.set(key, {
+            sku,
+            marketplaceCode,
+            date,
+            referralFeeAdj: 0,
+            fbaFeeAdj: 0,
+            otherFeeAdj: 0,
+          });
+        }
+
+        const adjRow = feeAdjAgg.get(key)!;
+        const bucket = mapFeeType(feeType);
+        if (bucket === "referral") {
+          adjRow.referralFeeAdj += feeAmount;
+        } else if (bucket === "fba") {
+          adjRow.fbaFeeAdj += feeAmount;
+        } else {
+          adjRow.otherFeeAdj += feeAmount;
+        }
+      }
     }
   }
 
-  // Strip orderIds set from output
-  const refundRows: RawSettlementRefundRow[] = Array.from(agg.values()).map(
+  // Strip orderIds set from refund output
+  const refundRows: RawSettlementRefundRow[] = Array.from(refundAgg.values()).map(
     ({ orderIds: _orderIds, ...rest }) => rest
   );
 
+  const feeAdjustments: RawSettlementFeeAdjustment[] = Array.from(feeAdjAgg.values());
+
   return {
     refundRows,
+    feeAdjustments,
     totalLines: reportRows.length,
     refundLines,
+    feeAdjLines,
     skippedNoSku,
     settlementId,
   };
