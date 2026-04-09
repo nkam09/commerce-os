@@ -60,6 +60,7 @@ export async function GET(req: NextRequest) {
       stock: p.available ?? 0,
       daysLeft: p.daysLeft,
       refunds: p.refunds,
+      refundCount: p.refundCount,
       refundPct: p.grossSales > 0 ? p.refunds / p.grossSales : null,
       amazonFees: p.totalFees,
       estPayout: Math.round((p.netRevenue - p.totalFees) * 100) / 100,

@@ -1,6 +1,6 @@
 const{PrismaClient}=require('@prisma/client');
 const p=new PrismaClient();
-p.$queryRawUnsafe("SELECT \"jobName\", cursor FROM sync_cursors WHERE \"jobName\" IN ('sync-returns', 'sync-settlement-refunds')")
-.then(r=>console.log(r))
+p.$queryRawUnsafe("UPDATE sync_cursors SET cursor = NULL WHERE \"jobName\" = 'sync-settlement-refunds'")
+.then(()=>console.log('settlement cursor reset'))
 .catch(e=>console.error(e))
 .finally(()=>p.$disconnect());

@@ -126,8 +126,12 @@ export function PeriodSummaryCard({ period, comparisonPeriod, className }: Perio
         {/* Refunds */}
         <MetricRow
           label="Refunds"
-          value={period.refunds > 0 ? `-${formatCurrency(period.refunds)}` : "$0.00"}
-          valueClassName={period.refunds > 0 ? "text-warning" : undefined}
+          value={
+            period.refundCount > 0
+              ? `${formatNumber(period.refundCount)} (-${formatCurrency(period.refunds)})`
+              : "$0.00"
+          }
+          valueClassName={period.refundCount > 0 ? "text-warning" : undefined}
         />
 
         {/* Ad cost */}
@@ -223,7 +227,16 @@ export function PeriodSummaryCard({ period, comparisonPeriod, className }: Perio
               <MetricRow label="Gross Sales" value={formatCurrency(period.grossSales)} small />
               <MetricRow label="  Organic Sales" value={formatCurrency(period.grossSales - period.adSales)} small valueClassName="text-muted-foreground" />
               <MetricRow label="  Sponsored Sales" value={formatCurrency(period.adSales)} small valueClassName="text-muted-foreground" />
-              <MetricRow label="Refunds" value={`-${formatCurrency(period.refunds)}`} valueClassName="text-danger" small />
+              <MetricRow
+                label="Refunds"
+                value={
+                  period.refundCount > 0
+                    ? `${formatNumber(period.refundCount)} units (-${formatCurrency(period.refunds)})`
+                    : `-${formatCurrency(period.refunds)}`
+                }
+                valueClassName="text-danger"
+                small
+              />
               <MetricRow label="Reimbursements" value={formatCurrency(period.reimbursements)} valueClassName={period.reimbursements > 0 ? "text-success" : undefined} small />
               <MetricRow label="Net Revenue" value={formatCurrency(period.netRevenue)} bold small />
             </BreakdownSection>

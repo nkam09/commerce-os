@@ -13,6 +13,7 @@ export type PeriodMetrics = {
   // Top-line
   grossSales: number;
   refunds: number;
+  refundCount: number;
   netRevenue: number;
 
   // Units & orders
@@ -68,6 +69,7 @@ export type ProductRow = {
   // Sales
   grossSales: number;
   refunds: number;
+  refundCount: number;
   netRevenue: number;
   unitsSold: number;
   orderCount: number;
@@ -235,7 +237,7 @@ async function queryPeriodMetrics(
   const [salesAgg, feesAgg, adsAgg, reimbAgg] = await Promise.all([
     prisma.dailySale.aggregate({
       where: { product: { userId }, date: { gte: period.from, lte: period.to } },
-      _sum: { grossSales: true, unitsSold: true, orderCount: true, refundAmount: true },
+      _sum: { grossSales: true, unitsSold: true, orderCount: true, refundAmount: true, refundCount: true },
     }),
     prisma.dailyFee.aggregate({
       where: { product: { userId }, date: { gte: period.from, lte: period.to } },
@@ -253,6 +255,7 @@ async function queryPeriodMetrics(
 
   const grossSales = toNum(salesAgg._sum.grossSales);
   const refunds = toNum(salesAgg._sum.refundAmount);
+  const refundCount = salesAgg._sum.refundCount ?? 0;
   const netRevenue = grossSales - refunds;
   const unitsSold = salesAgg._sum.unitsSold ?? 0;
   const orderCount = salesAgg._sum.orderCount ?? 0;
@@ -344,6 +347,7 @@ async function queryPeriodMetrics(
 
     grossSales: scale(grossSales),
     refunds: scale(refunds),
+    refundCount: Math.round(refundCount * multiplier),
     netRevenue: scale(netRevenue),
     unitsSold: Math.round(unitsSold * multiplier),
     orderCount: Math.round(orderCount * multiplier),
@@ -417,7 +421,7 @@ export async function queryProductRows(
     prisma.dailySale.groupBy({
       by: ["productId"],
       where: { productId: { in: productIds }, date: { gte: start, lte: today } },
-      _sum: { grossSales: true, unitsSold: true, orderCount: true, refundAmount: true },
+      _sum: { grossSales: true, unitsSold: true, orderCount: true, refundAmount: true, refundCount: true },
     }),
     prisma.dailyFee.groupBy({
       by: ["productId"],
@@ -444,6 +448,7 @@ export async function queryProductRows(
 
     const grossSales = toNum(sales?.grossSales);
     const refunds = toNum(sales?.refundAmount);
+    const refundCount = sales?.refundCount ?? 0;
     const netRevenue = grossSales - refunds;
     const unitsSold = sales?.unitsSold ?? 0;
     const orderCount = sales?.orderCount ?? 0;
@@ -474,6 +479,7 @@ export async function queryProductRows(
       status: p.status,
       grossSales: round(grossSales),
       refunds: round(refunds),
+      refundCount,
       netRevenue: round(netRevenue),
       unitsSold,
       orderCount,

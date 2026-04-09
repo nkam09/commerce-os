@@ -221,11 +221,29 @@ export const columns = [
     meta: { align: "right" },
   }),
 
-  col.accessor("refunds", {
+  col.accessor("refundCount", {
+    id: "refunds",
     header: "Refunds",
-    cell: ({ getValue }) => (
-      <span className="text-sm tabular-nums">{formatNumber(getValue())}</span>
-    ),
+    cell: ({ row }) => {
+      const count = row.original.refundCount;
+      const amount = row.original.refunds;
+      if (count === 0 && amount === 0) {
+        return <span className="text-sm tabular-nums text-muted-foreground">0</span>;
+      }
+      return (
+        <div className="text-right">
+          <span className="text-sm tabular-nums font-medium text-warning">
+            {formatNumber(count)}
+          </span>
+          {amount > 0 && (
+            <span className="text-xs tabular-nums text-muted-foreground ml-1">
+              (-{formatCurrency(amount)})
+            </span>
+          )}
+        </div>
+      );
+    },
+    sortingFn: (a, b) => a.original.refundCount - b.original.refundCount,
     meta: { align: "right" },
   }),
 

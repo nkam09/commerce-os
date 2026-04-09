@@ -18,6 +18,7 @@ export interface ProductRow {
   stock: number;
   daysLeft: number | null;
   refunds: number;
+  refundCount: number;
   refundPct: number | null;
   amazonFees: number;
   estPayout: number;
