@@ -136,7 +136,7 @@ export function parseSettlementReport(
     }
 
     const transactionType = (row["transaction-type"] ?? "").trim();
-    const amountDescription = (row["amount-description"] ?? "").trim().toLowerCase();
+    const amountDescription = (row["price-type"] ?? "").trim().toLowerCase();
 
     // Only process refund rows with Principal amount
     if (transactionType !== "Refund") continue;
@@ -155,7 +155,7 @@ export function parseSettlementReport(
 
     const date = toPacificDateOnly(postedDate);
     const dateStr = dateToStr(date);
-    const amount = Math.abs(parseNumber(row["amount"]));
+    const amount = Math.abs(parseNumber(row["price-amount"]));
 
     const key = `${sku}::${marketplaceCode}::${dateStr}`;
 

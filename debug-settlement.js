@@ -1,18 +1,46 @@
-const{PrismaClient}=require('@prisma/client');
-const p=new PrismaClient();
+const path = require("path");
+require("dotenv").config({ path: ".env.local" });
+
 async function main() {
-  const conn = await p.$queryRawUnsafe("SELECT id, credentials FROM sync_connections LIMIT 1");
-  console.log("connection:", conn[0]?.id);
+  const { getSpClientForUser } = require("./src/lib/amazon/get-sp-client-for-user");
+  const client = await getSpClientForUser("cmmku4pju00003ghoqyc6s408", "ATVPDKIKX0DER");
   
-  // We need to download a settlement report and inspect it
-  // Let's just check what the parser is filtering on
-  const fs = require('fs');
-  const parser = fs.readFileSync('src/lib/amazon/settlement-report-parser.ts', 'utf8');
-  const lines = parser.split('\n');
-  lines.forEach((l, i) => {
-    if (l.toLowerCase().includes('transaction') || l.toLowerCase().includes('refund') || l.toLowerCase().includes('filter')) {
-      console.log(`L${i+1}: ${l.trim()}`);
-    }
+  const reports = await client.getReports({
+    reportTypes: ["GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE"],
+    pageSize: 5,
+    processingStatuses: ["DONE"],
   });
+  
+  // Find the biggest report (most lines = most likely to have refunds)
+  for (const report of (reports.reports || [])) {
+    console.log("Report:", report.reportId, "created:", report.createdTime);
+    const docMeta = await client.getReportDocument(report.reportDocumentId);
+    const res = await fetch(docMeta.url);
+    const text = await res.text();
+    const lines = text.split("\n").filter(l => l.trim());
+    
+    const headers = lines[0].split("\t");
+    const txIdx = headers.indexOf("transaction-type");
+    const priceTypeIdx = headers.indexOf("price-type");
+    
+    if (txIdx >= 0) {
+      const types = new Set(lines.slice(1).map(l => l.split("\t")[txIdx]).filter(Boolean));
+      console.log("  lines:", lines.length, "transaction-types:", [...types]);
+      
+      // If has Refund, show a sample refund line
+      if (types.has("Refund")) {
+        const refundLine = lines.find(l => l.split("\t")[txIdx] === "Refund");
+        if (refundLine) {
+          const cols = refundLine.split("\t");
+          console.log("  SAMPLE REFUND:");
+          console.log("    transaction-type:", cols[txIdx]);
+          console.log("    sku:", cols[21]);
+          console.log("    price-type:", cols[priceTypeIdx]);
+          console.log("    price-amount:", cols[24]);
+          console.log("    posted-date:", cols[17]);
+        }
+      }
+    }
+  }
 }
-main().catch(console.error).finally(()=>p.$disconnect());
+main().catch(e => console.error(e));
