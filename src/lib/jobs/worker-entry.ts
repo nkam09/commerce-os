@@ -12,9 +12,12 @@
  *   2. sync-finances   — build DailyFee
  *   3. sync-inventory  — build InventorySnapshot
  *   4. sync-ads        — build DailyAd
- *   5. sync-returns    — build DailySale.refundCount from return reports
- *   6. sync-settlement-refunds — build DailySale.refundAmount from settlement reports
- *   7. sync-health-refresh — update connection statuses
+ *   5. sync-settlement-refunds — build DailySale.refundCount + refundAmount from settlement reports
+ *   6. sync-health-refresh — update connection statuses
+ *
+ * Note: sync-returns was removed because return-initiated dates don't match
+ * Sellerboard's settlement-posted dates. sync-settlement-refunds is the
+ * authoritative source for both refund counts and amounts.
  *
  * Catalog sync is excluded from the regular loop — run it separately on demand.
  *
@@ -31,7 +34,6 @@ import { syncFinancesJob } from "@/lib/jobs/sync-finances-job";
 import { syncInventoryJob } from "@/lib/jobs/sync-inventory-job";
 import { syncAdsProductsJob } from "@/lib/jobs/sync-ads-products-job";
 import { syncAdsKeywordsJob } from "@/lib/jobs/sync-ads-keywords-job";
-import { syncReturnsJob } from "@/lib/jobs/sync-returns-job";
 import { syncSettlementRefundsJob } from "@/lib/jobs/sync-settlement-refunds-job";
 import { runRecompute, refreshSyncHealth } from "@/lib/services/recompute-orchestration-service";
 
@@ -47,7 +49,6 @@ async function runAllJobs(): Promise<void> {
     { name: "sync-inventory", fn: () => syncInventoryJob(ctx) },
     { name: "sync-ads-products", fn: () => syncAdsProductsJob(ctx) },
     { name: "sync-ads-keywords", fn: () => syncAdsKeywordsJob(ctx) },
-    { name: "sync-returns", fn: () => syncReturnsJob(ctx) },
     { name: "sync-settlement-refunds", fn: () => syncSettlementRefundsJob(ctx) },
   ];
 

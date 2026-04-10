@@ -295,18 +295,6 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
         doc.compressionAlgorithm
       );
 
-      // ── DEBUG: inspect raw report structure ──
-      console.log(`[sync-settlement-refunds] DEBUG first 5 lines:`, text.split('\n').slice(0, 5));
-      const allRows = text.split('\n');
-      const headers = allRows[0]?.split('\t');
-      console.log(`[sync-settlement-refunds] DEBUG headers:`, headers?.slice(0, 15));
-      const txTypeIdx = headers?.findIndex(h => h.toLowerCase().includes('transaction'));
-      if (txTypeIdx !== undefined && txTypeIdx >= 0) {
-        const types = new Set(allRows.slice(1).map(l => l.split('\t')[txTypeIdx]).filter(Boolean));
-        console.log(`[sync-settlement-refunds] DEBUG transaction types:`, [...types]);
-      }
-      // ── END DEBUG ──
-
       const parsed = parseSettlementReport(text, ctx.marketplace.code);
 
       console.log(
