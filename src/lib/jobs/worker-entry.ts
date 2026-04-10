@@ -30,7 +30,7 @@
 
 import { resolveUserId, resolveJobContext } from "@/lib/jobs/job-connection-resolver";
 import { syncOrdersJob } from "@/lib/jobs/sync-orders-job";
-import { syncFinancesJob } from "@/lib/jobs/sync-finances-job";
+// sync-finances removed — fees calculated by sync-orders, non-order fees from settlements
 import { syncInventoryJob } from "@/lib/jobs/sync-inventory-job";
 import { syncAdsProductsJob } from "@/lib/jobs/sync-ads-products-job";
 import { syncAdsKeywordsJob } from "@/lib/jobs/sync-ads-keywords-job";
@@ -45,7 +45,7 @@ async function runAllJobs(): Promise<void> {
 
   const jobs = [
     { name: "sync-orders", fn: () => syncOrdersJob(ctx) },
-    { name: "sync-finances", fn: () => syncFinancesJob(ctx) },
+    // sync-finances removed — fees calculated by sync-orders, non-order fees from settlements
     { name: "sync-inventory", fn: () => syncInventoryJob(ctx) },
     { name: "sync-ads-products", fn: () => syncAdsProductsJob(ctx) },
     { name: "sync-ads-keywords", fn: () => syncAdsKeywordsJob(ctx) },

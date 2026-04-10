@@ -17,13 +17,15 @@
  * Flow:
  *   1. List settlement reports created since cursor date
  *   2. For each DONE report, download and parse it
- *   3. Extract refund rows (transaction-type="Refund", price-type="Principal")
- *   4. Extract fee adjustments (transaction-type="Refund", item-related-fee-type present)
- *   5. Resolve SKU → productId (settlements use SKU, not ASIN)
- *   6. Upsert into daily_sales: refundCount + refundAmount
- *   7. Apply fee adjustments to daily_fees (reduce fees by credited amounts)
- *   8. Upsert settlement fees into daily_fees (storage, disposal, subscription)
+ *   3. Extract refund rows (transaction-type="Refund", price-type="Principal"),
+ *      including refundCommission + refundedReferralFee from fee-type lines
+ *   4. Resolve SKU → productId (settlements use SKU, not ASIN)
+ *   5. Upsert into daily_sales: refundCount + refundAmount + refundCommission
+ *      + refundedReferralFee
+ *   6. Upsert settlement fees into daily_fees (storage, disposal, subscription)
  *      — account-level fees (no SKU) are attributed to the first active product
+ *   7. Upsert promo amounts (Principal type only) into daily_sales.promoAmount
+ *   8. Upsert reversal reimbursements into daily_fees.reimbursement
  *
  * Cursor: JSON object stored in SyncCursor(connectionId, "sync-settlement-refunds").
  *   {
@@ -36,10 +38,10 @@
  * On first run, createdSince defaults to 90 days ago.
  *
  * Why track processedSettlementIds:
- *   Phases 3 (fee adjustments) and 4 (settlement fees) use subtract-from-
- *   existing and add-to-existing semantics respectively, which are NOT
- *   idempotent. To make the cursor 24h rewind safe, we track every
- *   settlement-id we've already processed and skip it on the next run.
+ *   Phase 3 (settlement fees) and Phase 5 (reimbursements) use add-to-
+ *   existing semantics, which are NOT idempotent. To make the cursor 24h
+ *   rewind safe, we track every settlement-id we've already processed and
+ *   skip it on the next run.
  *   The list is naturally bounded: we only keep IDs that still appear in
  *   the current listing window (≤ 90 days), so old entries self-prune.
  *
@@ -52,7 +54,6 @@ import { getSpClientForUser } from "@/lib/amazon/get-sp-client-for-user";
 import { parseSettlementReport } from "@/lib/amazon/settlement-report-parser";
 import type {
   RawSettlementRefundRow,
-  RawSettlementFeeAdjustment,
   RawSettlementFeeRow,
   RawSettlementPromoRow,
   RawSettlementReimbursementRow,
@@ -144,103 +145,6 @@ async function normalizeSettlementRefundRows(
   }
 
   return { written, skippedUnknownSku, skippedUnknownMarketplace };
-}
-
-// ─── Fee Adjustment Normalization ────────────────────────────────────────────
-
-type FeeAdjNormResult = {
-  applied: number;
-  skippedNoFeeRow: number;
-  skippedUnknownSku: number;
-  skippedUnknownMarketplace: number;
-};
-
-/**
- * Applies refund fee adjustments to existing DailyFee rows.
- *
- * When Amazon refunds an order, they credit back some of the fees they
- * originally charged (referral fee, FBA fee, etc.). These credits need
- * to reduce the fee totals in daily_fees.
- *
- * Settlement fee amounts are signed:
- *   positive = Amazon credits money back to seller (reduces fees)
- *   negative = Amazon charges back (increases fees, rare)
- *
- * DailyFee stores fees as positive values (deductions), so:
- *   - A positive credit of $4.50 → SUBTRACT from referralFee
- *   - A negative charge of -$0.90 → ADD to referralFee (abs value)
- *
- * Only updates existing fee rows — if no DailyFee exists for that
- * date, the adjustment is skipped (fees haven't been synced yet).
- */
-async function applyFeeAdjustments(
-  rows: RawSettlementFeeAdjustment[],
-  maps: LookupMaps
-): Promise<FeeAdjNormResult> {
-  let applied = 0;
-  let skippedNoFeeRow = 0;
-  let skippedUnknownSku = 0;
-  let skippedUnknownMarketplace = 0;
-
-  for (const row of rows) {
-    const productId = maps.skuToProductId.get(row.sku);
-    if (!productId) {
-      skippedUnknownSku++;
-      continue;
-    }
-
-    const marketplaceId = maps.codeToMarketplaceId.get(row.marketplaceCode);
-    if (!marketplaceId) {
-      skippedUnknownMarketplace++;
-      continue;
-    }
-
-    // Only adjust if a fee row exists for this date
-    const existing = await prisma.dailyFee.findUnique({
-      where: {
-        productId_marketplaceId_date: {
-          productId,
-          marketplaceId,
-          date: row.date,
-        },
-      },
-      select: {
-        referralFee: true,
-        fbaFee: true,
-        otherFees: true,
-      },
-    });
-
-    if (!existing) {
-      skippedNoFeeRow++;
-      continue;
-    }
-
-    // Subtract credits from fee totals (positive adj = credit = reduce fee)
-    // Ensure fees don't go below zero
-    const newReferralFee = Math.max(0, Number(existing.referralFee) - row.referralFeeAdj);
-    const newFbaFee = Math.max(0, Number(existing.fbaFee) - row.fbaFeeAdj);
-    const newOtherFees = Math.max(0, Number(existing.otherFees) - row.otherFeeAdj);
-
-    await prisma.dailyFee.update({
-      where: {
-        productId_marketplaceId_date: {
-          productId,
-          marketplaceId,
-          date: row.date,
-        },
-      },
-      data: {
-        referralFee: newReferralFee,
-        fbaFee: newFbaFee,
-        otherFees: newOtherFees,
-      },
-    });
-
-    applied++;
-  }
-
-  return { applied, skippedNoFeeRow, skippedUnknownSku, skippedUnknownMarketplace };
 }
 
 // ─── Settlement Fee Normalization ────────────────────────────────────────────
@@ -664,14 +568,12 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
     // naturally prunes old entries: anything outside the ≤90-day listing
     // window disappears from the cursor.
     const allRefundRows: RawSettlementRefundRow[] = [];
-    const allFeeAdjustments: RawSettlementFeeAdjustment[] = [];
     const allFeeRows: RawSettlementFeeRow[] = [];
     const allPromoRows: RawSettlementPromoRow[] = [];
     const allReimbursementRows: RawSettlementReimbursementRow[] = [];
     const newProcessedIds: string[] = [];
     let totalLines = 0;
     let totalRefundLines = 0;
-    let totalFeeAdjLines = 0;
     let totalFeeRowLines = 0;
     let totalPromoLines = 0;
     let totalReimbursementLines = 0;
@@ -713,19 +615,16 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
         `[sync-settlement-refunds] report ${report.reportId}: ` +
           `settlement=${parsed.settlementId}, ${parsed.totalLines} lines, ` +
           `${parsed.refundLines} refund lines → ${parsed.refundRows.length} aggregated rows, ` +
-          `${parsed.feeAdjLines} fee adj lines → ${parsed.feeAdjustments.length} fee adj rows, ` +
           `${parsed.feeRowLines} settlement fee lines → ${parsed.feeRows.length} fee rows` +
           (parsed.skippedNoSku > 0 ? ` (skipped ${parsed.skippedNoSku} without SKU)` : "")
       );
 
       allRefundRows.push(...parsed.refundRows);
-      allFeeAdjustments.push(...parsed.feeAdjustments);
       allFeeRows.push(...parsed.feeRows);
       allPromoRows.push(...parsed.promoRows);
       allReimbursementRows.push(...parsed.reimbursementRows);
       totalLines += parsed.totalLines;
       totalRefundLines += parsed.refundLines;
-      totalFeeAdjLines += parsed.feeAdjLines;
       totalFeeRowLines += parsed.feeRowLines;
       totalPromoLines += parsed.promoLines;
       totalReimbursementLines += parsed.reimbursementLines;
@@ -768,26 +667,7 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
       }
     }
 
-    // ── Phase 3: Apply fee adjustments to daily_fees ─────────────────
-
-    let totalFeeAdjApplied = 0;
-
-    if (allFeeAdjustments.length > 0) {
-      console.log(
-        `[sync-settlement-refunds] applying ${allFeeAdjustments.length} fee adjustment rows`
-      );
-
-      const feeResult = await applyFeeAdjustments(allFeeAdjustments, maps);
-      totalFeeAdjApplied = feeResult.applied;
-
-      console.log(
-        `[sync-settlement-refunds] applied ${feeResult.applied} fee adjustments` +
-          (feeResult.skippedNoFeeRow > 0 ? `, skipped ${feeResult.skippedNoFeeRow} (no fee row)` : "") +
-          (feeResult.skippedUnknownSku > 0 ? `, skipped ${feeResult.skippedUnknownSku} (unknown SKU)` : "")
-      );
-    }
-
-    // ── Phase 4: Apply settlement fees (storage, disposal, subscription) ──
+    // ── Phase 3: Apply settlement fees (storage, disposal, subscription) ──
 
     let totalFeeRowsWritten = 0;
     let storageTotal = 0;
@@ -838,7 +718,7 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
       );
     }
 
-    // ── Phase 5: Apply promo (coupon/discount) rows ──────────────────────
+    // ── Phase 4: Apply promo (coupon/discount) rows ──────────────────────
 
     let totalPromoWritten = 0;
     let promoTotal = 0;
@@ -862,7 +742,7 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
       );
     }
 
-    // ── Phase 6: Apply reversal reimbursement rows ───────────────────────
+    // ── Phase 5: Apply reversal reimbursement rows ───────────────────────
 
     let totalReimbursementWritten = 0;
     let reimbursementTotal = 0;
@@ -895,7 +775,6 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
       `[sync-settlement-refunds] done: ${doneReports.length} reports ` +
         `(${skippedAlreadyProcessed} skipped as already-processed), ` +
         `${totalRefundLines} refund lines → ${totalWritten} rows written, ` +
-        `${totalFeeAdjLines} fee adj lines → ${totalFeeAdjApplied} applied, ` +
         `${totalFeeRowLines} settlement fee lines → ${totalFeeRowsWritten} applied, ` +
         `${totalPromoLines} promo lines → ${totalPromoWritten} applied, ` +
         `${totalReimbursementLines} reimbursement lines → ${totalReimbursementWritten} applied`
@@ -938,7 +817,6 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
         `${doneReports.length} settlement reports ` +
         `(${skippedAlreadyProcessed} deduped), ` +
         `${totalRefundLines} refund lines, ` +
-        `${totalFeeAdjApplied} fee adjustments, ` +
         `${totalFeeRowsWritten} settlement fees ` +
         `(storage: $${storageTotal.toFixed(2)}, ` +
         `awd storage: $${awdStorageTotal.toFixed(2)}, ` +

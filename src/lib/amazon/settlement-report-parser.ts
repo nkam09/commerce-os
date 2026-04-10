@@ -55,15 +55,6 @@ export type RawSettlementReimbursementRow = {
   reimbursement: number;
 };
 
-export type RawSettlementFeeAdjustment = {
-  sku: string;
-  marketplaceCode: string;
-  date: Date;
-  referralFeeAdj: number;  // positive = credit back to seller
-  fbaFeeAdj: number;
-  otherFeeAdj: number;
-};
-
 /**
  * Non-order settlement fees (storage, disposal, subscription, etc.)
  * These come as bulk charges from settlement reports with no per-order attribution.
@@ -84,13 +75,11 @@ export type RawSettlementFeeRow = {
 
 export type SettlementParseResult = {
   refundRows: RawSettlementRefundRow[];
-  feeAdjustments: RawSettlementFeeAdjustment[];
   feeRows: RawSettlementFeeRow[];
   promoRows: RawSettlementPromoRow[];
   reimbursementRows: RawSettlementReimbursementRow[];
   totalLines: number;
   refundLines: number;
-  feeAdjLines: number;
   feeRowLines: number;
   promoLines: number;
   reimbursementLines: number;
@@ -167,15 +156,6 @@ function parseTsv(tsv: string): ReportRow[] {
 
 // ─── Main parser ─────────────────────────────────────────────────────────────
 
-// ─── Fee type mapping ────────────────────────────────────────────────────────
-
-function mapFeeType(feeType: string): "referral" | "fba" | "other" {
-  const lower = feeType.toLowerCase();
-  if (lower === "commission" || lower === "refundcommission") return "referral";
-  if (lower === "fbaperunitfulfillmentfee" || lower === "fbaperorderfulfillmentfee") return "fba";
-  return "other";
-}
-
 /**
  * Identifies settlement reimbursement transaction types.
  * These represent money returned to the seller (lost/damaged inventory,
@@ -247,12 +227,10 @@ export function parseSettlementReport(
 ): SettlementParseResult {
   const reportRows = parseTsv(reportText);
   const refundAgg = new Map<string, RawSettlementRefundRow & { orderIds: Set<string> }>();
-  const feeAdjAgg = new Map<string, RawSettlementFeeAdjustment>();
   const feeRowAgg = new Map<string, RawSettlementFeeRow>();
   const promoAgg = new Map<string, RawSettlementPromoRow>();
   const reimbursementAgg = new Map<string, RawSettlementReimbursementRow>();
   let refundLines = 0;
-  let feeAdjLines = 0;
   let feeRowLines = 0;
   let promoLines = 0;
   let reimbursementLines = 0;
@@ -315,57 +293,43 @@ export function parseSettlementReport(
         }
       }
 
-      // ── Fee adjustments (credits Amazon gives back on refunds) ──
+      // ── Refund cost breakdown ──
+      // Correct mapping (verified from raw settlement data):
+      //   Commission (positive)         → refundedReferralFee
+      //      This is the referral fee Amazon credits back to the seller on
+      //      the refund. Already positive in the report.
+      //   RefundCommission (negative)   → refundCommission (absolute value)
+      //      This is Amazon's commission charge on the refund itself — a cost
+      //      to the seller.
+      //   ShippingChargeback            → ignored (not shown in Sellerboard)
       const feeType = (row["item-related-fee-type"] ?? "").trim();
       const feeAmountRaw = (row["item-related-fee-amount"] ?? "").trim();
 
       if (feeType && feeAmountRaw) {
         const feeAmount = parseNumber(feeAmountRaw);
         if (feeAmount !== 0) {
-          feeAdjLines++;
-
-          if (!feeAdjAgg.has(key)) {
-            feeAdjAgg.set(key, {
-              sku,
-              marketplaceCode,
-              date,
-              referralFeeAdj: 0,
-              fbaFeeAdj: 0,
-              otherFeeAdj: 0,
-            });
-          }
-
-          const adjRow = feeAdjAgg.get(key)!;
-          const bucket = mapFeeType(feeType);
-          if (bucket === "referral") {
-            adjRow.referralFeeAdj += feeAmount;
-          } else if (bucket === "fba") {
-            adjRow.fbaFeeAdj += feeAmount;
-          } else {
-            adjRow.otherFeeAdj += feeAmount;
-          }
-
-          // ── Refund cost breakdown ──
-          // "Commission" on Refund rows is the commission Amazon retains on the
-          // refund (a cost to the seller). "RefundCommission" is the referral
-          // fee credit Amazon gives back. Store both as absolute values.
           const lowerFeeType = feeType.toLowerCase();
-          const refundRow = ensureRefundRow();
           if (lowerFeeType === "commission") {
-            refundRow.refundCommission += Math.abs(feeAmount);
+            const refundRow = ensureRefundRow();
+            refundRow.refundedReferralFee += feeAmount; // already positive
           } else if (lowerFeeType === "refundcommission") {
-            refundRow.refundedReferralFee += Math.abs(feeAmount);
+            const refundRow = ensureRefundRow();
+            refundRow.refundCommission += Math.abs(feeAmount);
           }
+          // ShippingChargeback and anything else: ignored
         }
       }
 
       continue; // refund row handled — skip settlement fee processing
     }
 
-    // ─── Order row: capture promotion-amount ───────────────────────────
+    // ─── Order row: capture Principal promotion-amount ────────────────
+    // Only "Principal" promotion-type counts as a sales promo/discount.
+    // Shipping and other promotion types are ignored to match Sellerboard.
     if (transactionType === "Order") {
+      const promoType = (row["promotion-type"] ?? "").trim();
       const promoRaw = (row["promotion-amount"] ?? "").trim();
-      if (promoRaw) {
+      if (promoType === "Principal" && promoRaw) {
         const promoVal = parseNumber(promoRaw);
         if (promoVal !== 0) {
           const sku = (row["sku"] ?? "").trim();
@@ -456,7 +420,6 @@ export function parseSettlementReport(
     ({ orderIds: _orderIds, ...rest }) => rest
   );
 
-  const feeAdjustments: RawSettlementFeeAdjustment[] = Array.from(feeAdjAgg.values());
   const feeRows: RawSettlementFeeRow[] = Array.from(feeRowAgg.values());
   const promoRows: RawSettlementPromoRow[] = Array.from(promoAgg.values());
   const reimbursementRows: RawSettlementReimbursementRow[] = Array.from(
@@ -465,13 +428,11 @@ export function parseSettlementReport(
 
   return {
     refundRows,
-    feeAdjustments,
     feeRows,
     promoRows,
     reimbursementRows,
     totalLines: reportRows.length,
     refundLines,
-    feeAdjLines,
     feeRowLines,
     promoLines,
     reimbursementLines,

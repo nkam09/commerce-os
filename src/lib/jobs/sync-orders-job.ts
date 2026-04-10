@@ -113,13 +113,15 @@ export async function syncOrdersJob(ctx: JobContext): Promise<JobResult> {
       }
     }
 
-    // ── Phase 3: Estimate fees for recent days missing real fee data ────
+    // ── Phase 3: Calculate fees from order data (ALWAYS overwrites) ────
+    // Uses hardcoded per-unit rates verified against Sellerboard.
+    // Only writes fbaFee + referralFee; storage/AWD/reimbursement come from settlements.
     if (totalWritten > 0) {
       const effectiveCursorDate = new Date(effectiveCursor);
       effectiveCursorDate.setUTCHours(0, 0, 0, 0);
       const feeResult = await estimateRecentFees(ctx.userId, effectiveCursorDate);
       console.log(
-        `[sync-orders] fee estimation: ${feeResult.estimated} estimated, ${feeResult.skipped} skipped (real data exists)`
+        `[sync-orders] fee estimation: ${feeResult.estimated} calculated`
       );
     }
 
