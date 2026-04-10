@@ -71,6 +71,7 @@ export async function getProductsPageData(
           awdStorageFee: true,
           returnProcessingFee: true,
           otherFees: true,
+          reimbursement: true,
         },
       },
       dailyAds: {
@@ -96,6 +97,7 @@ export async function getProductsPageData(
       (s, d) => s + toNum(d.returnProcessingFee) + toNum(d.otherFees),
       0
     );
+    const totalReimbursement = p.dailyFees.reduce((s, d) => s + toNum(d.reimbursement), 0);
 
     // Aggregate 30-day ad spend
     const totalAdSpend = p.dailyAds.reduce((s, d) => s + toNum(d.spend), 0);
@@ -116,6 +118,7 @@ export async function getProductsPageData(
       storageFee: totalStorage,
       awdStorageFee: totalAwdStorage,
       otherFees: totalOtherFees,
+      reimbursement: totalReimbursement,
       adSpend: totalAdSpend,
       landedCogs: fullCogs,
       unitsSold: totalUnits,

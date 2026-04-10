@@ -67,6 +67,7 @@ export async function getOverviewDashboard(userId: string): Promise<OverviewDash
       awdStorageFee: true,
       returnProcessingFee: true,
       otherFees: true,
+      reimbursement: true,
     },
   });
 
@@ -92,7 +93,8 @@ export async function getOverviewDashboard(userId: string): Promise<OverviewDash
     toNum(feesAgg._sum.storageFee) +
     toNum(feesAgg._sum.awdStorageFee) +
     toNum(feesAgg._sum.returnProcessingFee) +
-    toNum(feesAgg._sum.otherFees);
+    toNum(feesAgg._sum.otherFees) -
+    toNum(feesAgg._sum.reimbursement);
 
   // Simple net profit: revenue - fees - ads (no COGS without product settings join)
   const netProfit30d = round(grossSales30d - totalFees30d - adSpend30d);

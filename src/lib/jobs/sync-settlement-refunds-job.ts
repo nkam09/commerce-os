@@ -54,6 +54,8 @@ import type {
   RawSettlementRefundRow,
   RawSettlementFeeAdjustment,
   RawSettlementFeeRow,
+  RawSettlementPromoRow,
+  RawSettlementReimbursementRow,
 } from "@/lib/amazon/settlement-report-parser";
 import { loadLookupMaps } from "@/lib/sync/sales-normalization-service";
 import type { LookupMaps } from "@/lib/sync/sales-normalization-service";
@@ -127,10 +129,14 @@ async function normalizeSettlementRefundRows(
         grossSales: 0,
         refundCount: row.refundCount,
         refundAmount: row.refundAmount,
+        refundCommission: row.refundCommission,
+        refundedReferralFee: row.refundedReferralFee,
       },
       update: {
         refundCount: row.refundCount,
         refundAmount: row.refundAmount,
+        refundCommission: row.refundCommission,
+        refundedReferralFee: row.refundedReferralFee,
       },
     });
 
@@ -397,6 +403,150 @@ async function normalizeSettlementFeeRows(
   };
 }
 
+// ─── Promo Normalization ────────────────────────────────────────────────────
+
+type PromoNormResult = {
+  written: number;
+  promoTotal: number;
+  skippedUnknownSku: number;
+  skippedUnknownMarketplace: number;
+};
+
+/**
+ * Upserts settlement promo amounts (coupons/discounts) into DailySale.promoAmount.
+ * Uses authoritative overwrite semantics — settlement report is the source of truth.
+ */
+async function normalizeSettlementPromoRows(
+  rows: RawSettlementPromoRow[],
+  maps: LookupMaps
+): Promise<PromoNormResult> {
+  let written = 0;
+  let promoTotal = 0;
+  let skippedUnknownSku = 0;
+  let skippedUnknownMarketplace = 0;
+
+  for (const row of rows) {
+    const productId = maps.skuToProductId.get(row.sku);
+    if (!productId) {
+      skippedUnknownSku++;
+      continue;
+    }
+    const marketplaceId = maps.codeToMarketplaceId.get(row.marketplaceCode);
+    if (!marketplaceId) {
+      skippedUnknownMarketplace++;
+      continue;
+    }
+
+    await prisma.dailySale.upsert({
+      where: {
+        productId_marketplaceId_date: { productId, marketplaceId, date: row.date },
+      },
+      create: {
+        productId,
+        marketplaceId,
+        date: row.date,
+        unitsSold: 0,
+        orderCount: 0,
+        grossSales: 0,
+        promoAmount: row.promoAmount,
+      },
+      update: {
+        promoAmount: row.promoAmount,
+      },
+    });
+
+    written++;
+    promoTotal += row.promoAmount;
+  }
+
+  return { written, promoTotal, skippedUnknownSku, skippedUnknownMarketplace };
+}
+
+// ─── Reimbursement Normalization ────────────────────────────────────────────
+
+type ReimbursementNormResult = {
+  written: number;
+  reimbursementTotal: number;
+  skippedUnknownMarketplace: number;
+  skippedNoProduct: number;
+};
+
+/**
+ * Upserts reversal reimbursement amounts into DailyFee.reimbursement.
+ *
+ * Uses ADD semantics (existing + new) so repeated applications within a
+ * settlement window accumulate correctly. Dedup is handled by the
+ * processedSettlementIds cursor above.
+ *
+ * Account-level reimbursements (no SKU) fall back to the first active product.
+ */
+async function normalizeSettlementReimbursementRows(
+  rows: RawSettlementReimbursementRow[],
+  maps: LookupMaps,
+  fallbackProductId: string | null
+): Promise<ReimbursementNormResult> {
+  let written = 0;
+  let reimbursementTotal = 0;
+  let skippedUnknownMarketplace = 0;
+  let skippedNoProduct = 0;
+
+  for (const row of rows) {
+    let productId: string | undefined;
+    if (row.sku) productId = maps.skuToProductId.get(row.sku);
+    if (!productId) productId = fallbackProductId ?? undefined;
+    if (!productId) {
+      skippedNoProduct++;
+      continue;
+    }
+
+    const marketplaceId = maps.codeToMarketplaceId.get(row.marketplaceCode);
+    if (!marketplaceId) {
+      skippedUnknownMarketplace++;
+      continue;
+    }
+
+    if (row.reimbursement === 0) continue;
+
+    const existing = await prisma.dailyFee.findUnique({
+      where: {
+        productId_marketplaceId_date: { productId, marketplaceId, date: row.date },
+      },
+      select: { reimbursement: true },
+    });
+
+    if (existing) {
+      await prisma.dailyFee.update({
+        where: {
+          productId_marketplaceId_date: { productId, marketplaceId, date: row.date },
+        },
+        data: {
+          reimbursement: Number(existing.reimbursement) + row.reimbursement,
+        },
+      });
+    } else {
+      await prisma.dailyFee.create({
+        data: {
+          productId,
+          marketplaceId,
+          date: row.date,
+          referralFee: 0,
+          fbaFee: 0,
+          storageFee: 0,
+          awdStorageFee: 0,
+          returnProcessingFee: 0,
+          otherFees: 0,
+          reimbursement: row.reimbursement,
+        },
+      });
+    }
+
+    written++;
+    reimbursementTotal += row.reimbursement;
+  }
+
+  return { written, reimbursementTotal, skippedUnknownMarketplace, skippedNoProduct };
+}
+
 // ─── Cursor serialization ───────────────────────────────────────────────────
 
 type CursorData = {
@@ -516,11 +666,15 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
     const allRefundRows: RawSettlementRefundRow[] = [];
     const allFeeAdjustments: RawSettlementFeeAdjustment[] = [];
     const allFeeRows: RawSettlementFeeRow[] = [];
+    const allPromoRows: RawSettlementPromoRow[] = [];
+    const allReimbursementRows: RawSettlementReimbursementRow[] = [];
     const newProcessedIds: string[] = [];
     let totalLines = 0;
     let totalRefundLines = 0;
     let totalFeeAdjLines = 0;
     let totalFeeRowLines = 0;
+    let totalPromoLines = 0;
+    let totalReimbursementLines = 0;
     let skippedAlreadyProcessed = 0;
     let latestCreatedTime = cursorData.createdSince;
 
@@ -567,10 +721,14 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
       allRefundRows.push(...parsed.refundRows);
       allFeeAdjustments.push(...parsed.feeAdjustments);
       allFeeRows.push(...parsed.feeRows);
+      allPromoRows.push(...parsed.promoRows);
+      allReimbursementRows.push(...parsed.reimbursementRows);
       totalLines += parsed.totalLines;
       totalRefundLines += parsed.refundLines;
       totalFeeAdjLines += parsed.feeAdjLines;
       totalFeeRowLines += parsed.feeRowLines;
+      totalPromoLines += parsed.promoLines;
+      totalReimbursementLines += parsed.reimbursementLines;
 
       // Mark this settlement-id as processed going forward
       if (parsed.settlementId) {
@@ -680,12 +838,67 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
       );
     }
 
+    // ── Phase 5: Apply promo (coupon/discount) rows ──────────────────────
+
+    let totalPromoWritten = 0;
+    let promoTotal = 0;
+
+    if (allPromoRows.length > 0) {
+      console.log(
+        `[sync-settlement-refunds] applying ${allPromoRows.length} promo rows`
+      );
+      const promoResult = await normalizeSettlementPromoRows(allPromoRows, maps);
+      totalPromoWritten = promoResult.written;
+      promoTotal = promoResult.promoTotal;
+      console.log(
+        `[sync-settlement-refunds] applied ${promoResult.written} promo rows ` +
+          `(total: $${promoTotal.toFixed(2)})` +
+          (promoResult.skippedUnknownSku > 0
+            ? `, skipped ${promoResult.skippedUnknownSku} (unknown SKU)`
+            : "") +
+          (promoResult.skippedUnknownMarketplace > 0
+            ? `, skipped ${promoResult.skippedUnknownMarketplace} (unknown marketplace)`
+            : "")
+      );
+    }
+
+    // ── Phase 6: Apply reversal reimbursement rows ───────────────────────
+
+    let totalReimbursementWritten = 0;
+    let reimbursementTotal = 0;
+
+    if (allReimbursementRows.length > 0) {
+      console.log(
+        `[sync-settlement-refunds] applying ${allReimbursementRows.length} reimbursement rows`
+      );
+      const fallbackProductId = await getFirstProductId(ctx.userId);
+      const reimbResult = await normalizeSettlementReimbursementRows(
+        allReimbursementRows,
+        maps,
+        fallbackProductId
+      );
+      totalReimbursementWritten = reimbResult.written;
+      reimbursementTotal = reimbResult.reimbursementTotal;
+      console.log(
+        `[sync-settlement-refunds] applied ${reimbResult.written} reimbursement rows ` +
+          `(total: $${reimbursementTotal.toFixed(2)})` +
+          (reimbResult.skippedNoProduct > 0
+            ? `, skipped ${reimbResult.skippedNoProduct} (no product)`
+            : "") +
+          (reimbResult.skippedUnknownMarketplace > 0
+            ? `, skipped ${reimbResult.skippedUnknownMarketplace} (unknown marketplace)`
+            : "")
+      );
+    }
+
     console.log(
       `[sync-settlement-refunds] done: ${doneReports.length} reports ` +
         `(${skippedAlreadyProcessed} skipped as already-processed), ` +
         `${totalRefundLines} refund lines → ${totalWritten} rows written, ` +
         `${totalFeeAdjLines} fee adj lines → ${totalFeeAdjApplied} applied, ` +
-        `${totalFeeRowLines} settlement fee lines → ${totalFeeRowsWritten} applied`
+        `${totalFeeRowLines} settlement fee lines → ${totalFeeRowsWritten} applied, ` +
+        `${totalPromoLines} promo lines → ${totalPromoWritten} applied, ` +
+        `${totalReimbursementLines} reimbursement lines → ${totalReimbursementWritten} applied`
     );
 
     // Advance cursor to 24 hours BEFORE the latest report's createdTime.
@@ -730,7 +943,9 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
         `(storage: $${storageTotal.toFixed(2)}, ` +
         `awd storage: $${awdStorageTotal.toFixed(2)}, ` +
         `disposal: $${disposalTotal.toFixed(2)}, ` +
-        `subscription: $${subscriptionTotal.toFixed(2)})`,
+        `subscription: $${subscriptionTotal.toFixed(2)}), ` +
+        `promo: $${promoTotal.toFixed(2)}, ` +
+        `reimbursement: $${reimbursementTotal.toFixed(2)}`,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

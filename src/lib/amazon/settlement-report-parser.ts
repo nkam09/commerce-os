@@ -25,8 +25,34 @@ export type RawSettlementRefundRow = {
   sku: string;
   marketplaceCode: string;
   date: Date;
-  refundCount: number;   // count of distinct order-ids with refunds that day
-  refundAmount: number;  // sum of |amount| for Principal refunds
+  refundCount: number;          // count of distinct order-ids with refunds that day
+  refundAmount: number;         // sum of |amount| for Principal refunds
+  refundCommission: number;     // absolute commission retained/charged on refund (item-related-fee-type=Commission)
+  refundedReferralFee: number;  // absolute referral fee credited back on refund (RefundCommission fee type)
+};
+
+/**
+ * Promo (coupon/discount) row from settlement "Order" rows with a non-zero
+ * promotion-amount column. Amounts stored as absolute (positive) values.
+ */
+export type RawSettlementPromoRow = {
+  sku: string;
+  marketplaceCode: string;
+  date: Date;
+  promoAmount: number;
+};
+
+/**
+ * Reversal reimbursement row: money Amazon returns to the seller for lost/damaged
+ * inventory or reversed refunds. Captured transaction types:
+ *   REVERSAL_REIMBURSEMENT, WAREHOUSE_DAMAGE, WAREHOUSE_LOST, FREE_REPLACEMENT_REFUND_ITEMS
+ * Amounts stored as absolute (positive) values.
+ */
+export type RawSettlementReimbursementRow = {
+  sku: string;              // may be empty for account-level reimbursements
+  marketplaceCode: string;
+  date: Date;
+  reimbursement: number;
 };
 
 export type RawSettlementFeeAdjustment = {
@@ -60,10 +86,14 @@ export type SettlementParseResult = {
   refundRows: RawSettlementRefundRow[];
   feeAdjustments: RawSettlementFeeAdjustment[];
   feeRows: RawSettlementFeeRow[];
+  promoRows: RawSettlementPromoRow[];
+  reimbursementRows: RawSettlementReimbursementRow[];
   totalLines: number;
   refundLines: number;
   feeAdjLines: number;
   feeRowLines: number;
+  promoLines: number;
+  reimbursementLines: number;
   skippedNoSku: number;
   settlementId: string;
 };
@@ -141,9 +171,24 @@ function parseTsv(tsv: string): ReportRow[] {
 
 function mapFeeType(feeType: string): "referral" | "fba" | "other" {
   const lower = feeType.toLowerCase();
-  if (lower === "commission") return "referral";
+  if (lower === "commission" || lower === "refundcommission") return "referral";
   if (lower === "fbaperunitfulfillmentfee" || lower === "fbaperorderfulfillmentfee") return "fba";
   return "other";
+}
+
+/**
+ * Identifies settlement reimbursement transaction types.
+ * These represent money returned to the seller (lost/damaged inventory,
+ * reversed refunds, free replacements).
+ */
+function isReimbursementTransaction(transactionType: string): boolean {
+  const t = transactionType.trim().toUpperCase().replace(/\s+/g, "_");
+  return (
+    t === "REVERSAL_REIMBURSEMENT" ||
+    t === "WAREHOUSE_DAMAGE" ||
+    t === "WAREHOUSE_LOST" ||
+    t === "FREE_REPLACEMENT_REFUND_ITEMS"
+  );
 }
 
 // ─── Main parser ─────────────────────────────────────────────────────────────
@@ -204,9 +249,13 @@ export function parseSettlementReport(
   const refundAgg = new Map<string, RawSettlementRefundRow & { orderIds: Set<string> }>();
   const feeAdjAgg = new Map<string, RawSettlementFeeAdjustment>();
   const feeRowAgg = new Map<string, RawSettlementFeeRow>();
+  const promoAgg = new Map<string, RawSettlementPromoRow>();
+  const reimbursementAgg = new Map<string, RawSettlementReimbursementRow>();
   let refundLines = 0;
   let feeAdjLines = 0;
   let feeRowLines = 0;
+  let promoLines = 0;
+  let reimbursementLines = 0;
   let skippedNoSku = 0;
   let settlementId = "";
 
@@ -234,12 +283,7 @@ export function parseSettlementReport(
       const dateStr = dateToStr(date);
       const key = `${sku}::${marketplaceCode}::${dateStr}`;
 
-      // ── Refund Principal amounts ──
-      const priceType = (row["price-type"] ?? "").trim().toLowerCase();
-      if (priceType === "principal") {
-        refundLines++;
-        const amount = Math.abs(parseNumber(row["price-amount"]));
-
+      const ensureRefundRow = () => {
         if (!refundAgg.has(key)) {
           refundAgg.set(key, {
             sku,
@@ -247,11 +291,21 @@ export function parseSettlementReport(
             date,
             refundCount: 0,
             refundAmount: 0,
+            refundCommission: 0,
+            refundedReferralFee: 0,
             orderIds: new Set<string>(),
           });
         }
+        return refundAgg.get(key)!;
+      };
 
-        const refundRow = refundAgg.get(key)!;
+      // ── Refund Principal amounts ──
+      const priceType = (row["price-type"] ?? "").trim().toLowerCase();
+      if (priceType === "principal") {
+        refundLines++;
+        const amount = Math.abs(parseNumber(row["price-amount"]));
+
+        const refundRow = ensureRefundRow();
         refundRow.refundAmount += amount;
 
         // Count distinct order-ids as refund units
@@ -290,10 +344,68 @@ export function parseSettlementReport(
           } else {
             adjRow.otherFeeAdj += feeAmount;
           }
+
+          // ── Refund cost breakdown ──
+          // "Commission" on Refund rows is the commission Amazon retains on the
+          // refund (a cost to the seller). "RefundCommission" is the referral
+          // fee credit Amazon gives back. Store both as absolute values.
+          const lowerFeeType = feeType.toLowerCase();
+          const refundRow = ensureRefundRow();
+          if (lowerFeeType === "commission") {
+            refundRow.refundCommission += Math.abs(feeAmount);
+          } else if (lowerFeeType === "refundcommission") {
+            refundRow.refundedReferralFee += Math.abs(feeAmount);
+          }
         }
       }
 
       continue; // refund row handled — skip settlement fee processing
+    }
+
+    // ─── Order row: capture promotion-amount ───────────────────────────
+    if (transactionType === "Order") {
+      const promoRaw = (row["promotion-amount"] ?? "").trim();
+      if (promoRaw) {
+        const promoVal = parseNumber(promoRaw);
+        if (promoVal !== 0) {
+          const sku = (row["sku"] ?? "").trim();
+          if (!sku) {
+            skippedNoSku++;
+          } else {
+            promoLines++;
+            const date = toPacificDateOnly(postedDate);
+            const dateStr = dateToStr(date);
+            const key = `${sku}::${marketplaceCode}::${dateStr}`;
+            if (!promoAgg.has(key)) {
+              promoAgg.set(key, { sku, marketplaceCode, date, promoAmount: 0 });
+            }
+            promoAgg.get(key)!.promoAmount += Math.abs(promoVal);
+          }
+        }
+      }
+      continue;
+    }
+
+    // ─── Reversal reimbursement processing ─────────────────────────────
+    if (isReimbursementTransaction(transactionType)) {
+      // Reimbursements typically use other-amount; fall back to price-amount
+      const amountRaw =
+        (row["other-amount"] ?? "").trim() || (row["price-amount"] ?? "").trim();
+      if (!amountRaw) continue;
+      const rawAmount = parseNumber(amountRaw);
+      if (rawAmount === 0) continue;
+
+      reimbursementLines++;
+      const amount = Math.abs(rawAmount);
+      const sku = (row["sku"] ?? "").trim(); // may be empty for account-level
+      const date = toPacificDateOnly(postedDate);
+      const dateStr = dateToStr(date);
+      const key = `${sku}::${marketplaceCode}::${dateStr}`;
+      if (!reimbursementAgg.has(key)) {
+        reimbursementAgg.set(key, { sku, marketplaceCode, date, reimbursement: 0 });
+      }
+      reimbursementAgg.get(key)!.reimbursement += amount;
+      continue;
     }
 
     // ─── Non-refund settlement fee processing ──────────────────────────
@@ -346,15 +458,23 @@ export function parseSettlementReport(
 
   const feeAdjustments: RawSettlementFeeAdjustment[] = Array.from(feeAdjAgg.values());
   const feeRows: RawSettlementFeeRow[] = Array.from(feeRowAgg.values());
+  const promoRows: RawSettlementPromoRow[] = Array.from(promoAgg.values());
+  const reimbursementRows: RawSettlementReimbursementRow[] = Array.from(
+    reimbursementAgg.values()
+  );
 
   return {
     refundRows,
     feeAdjustments,
     feeRows,
+    promoRows,
+    reimbursementRows,
     totalLines: reportRows.length,
     refundLines,
     feeAdjLines,
     feeRowLines,
+    promoLines,
+    reimbursementLines,
     skippedNoSku,
     settlementId,
   };

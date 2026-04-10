@@ -214,6 +214,9 @@ model DailySale {
   grossSales    Decimal  @default(0) @db.Decimal(14, 4)
   refundCount   Int      @default(0)
   refundAmount  Decimal  @default(0) @db.Decimal(14, 4)
+  promoAmount   Decimal  @default(0) @db.Decimal(14, 4)
+  refundCommission    Decimal @default(0) @db.Decimal(14, 4)
+  refundedReferralFee Decimal @default(0) @db.Decimal(14, 4)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -235,6 +238,7 @@ model DailyFee {
   awdStorageFee         Decimal  @default(0) @db.Decimal(14, 4)
   returnProcessingFee   Decimal  @default(0) @db.Decimal(14, 4)
   otherFees             Decimal  @default(0) @db.Decimal(14, 4)
+  reimbursement         Decimal  @default(0) @db.Decimal(14, 4)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 

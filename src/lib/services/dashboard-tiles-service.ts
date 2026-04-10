@@ -14,7 +14,12 @@ export type PeriodMetrics = {
   grossSales: number;
   refunds: number;
   refundCount: number;
+  promoAmount: number;
   netRevenue: number;
+
+  // Refund cost breakdown
+  refundCommission: number;
+  refundedReferralFee: number;
 
   // Units & orders
   unitsSold: number;
@@ -27,6 +32,7 @@ export type PeriodMetrics = {
   awdStorageFees: number;
   returnProcessingFees: number;
   otherFees: number;
+  reversalReimbursement: number;  // settlement-report reversal/warehouse reimbursements (reduces totalFees)
   totalFees: number;
 
   // Advertising
@@ -238,11 +244,28 @@ async function queryPeriodMetrics(
   const [salesAgg, feesAgg, adsAgg, reimbAgg] = await Promise.all([
     prisma.dailySale.aggregate({
       where: { product: { userId }, date: { gte: period.from, lte: period.to } },
-      _sum: { grossSales: true, unitsSold: true, orderCount: true, refundAmount: true, refundCount: true },
+      _sum: {
+        grossSales: true,
+        unitsSold: true,
+        orderCount: true,
+        refundAmount: true,
+        refundCount: true,
+        promoAmount: true,
+        refundCommission: true,
+        refundedReferralFee: true,
+      },
     }),
     prisma.dailyFee.aggregate({
       where: { product: { userId }, date: { gte: period.from, lte: period.to } },
-      _sum: { referralFee: true, fbaFee: true, storageFee: true, awdStorageFee: true, returnProcessingFee: true, otherFees: true },
+      _sum: {
+        referralFee: true,
+        fbaFee: true,
+        storageFee: true,
+        awdStorageFee: true,
+        returnProcessingFee: true,
+        otherFees: true,
+        reimbursement: true,
+      },
     }),
     prisma.dailyAd.aggregate({
       where: { product: { userId }, date: { gte: period.from, lte: period.to } },
@@ -257,7 +280,10 @@ async function queryPeriodMetrics(
   const grossSales = toNum(salesAgg._sum.grossSales);
   const refunds = toNum(salesAgg._sum.refundAmount);
   const refundCount = salesAgg._sum.refundCount ?? 0;
-  const netRevenue = grossSales - refunds;
+  const promoAmount = toNum(salesAgg._sum.promoAmount);
+  const refundCommission = toNum(salesAgg._sum.refundCommission);
+  const refundedReferralFee = toNum(salesAgg._sum.refundedReferralFee);
+  const netRevenue = grossSales - refunds - promoAmount;
   const unitsSold = salesAgg._sum.unitsSold ?? 0;
   const orderCount = salesAgg._sum.orderCount ?? 0;
 
@@ -267,7 +293,15 @@ async function queryPeriodMetrics(
   const awdStorageFees = toNum(feesAgg._sum.awdStorageFee);
   const returnProcessingFees = toNum(feesAgg._sum.returnProcessingFee);
   const otherFees = toNum(feesAgg._sum.otherFees);
-  const totalFees = referralFees + fbaFees + storageFees + awdStorageFees + returnProcessingFees + otherFees;
+  const reversalReimbursement = toNum(feesAgg._sum.reimbursement);
+  const totalFees =
+    referralFees +
+    fbaFees +
+    storageFees +
+    awdStorageFees +
+    returnProcessingFees +
+    otherFees -
+    reversalReimbursement;
 
   const adSpend = toNum(adsAgg._sum.spend);
   const adSales = toNum(adsAgg._sum.attributedSales);
@@ -350,7 +384,12 @@ async function queryPeriodMetrics(
     grossSales: scale(grossSales),
     refunds: scale(refunds),
     refundCount: Math.round(refundCount * multiplier),
+    promoAmount: scale(promoAmount),
     netRevenue: scale(netRevenue),
+
+    refundCommission: scale(refundCommission),
+    refundedReferralFee: scale(refundedReferralFee),
+
     unitsSold: Math.round(unitsSold * multiplier),
     orderCount: Math.round(orderCount * multiplier),
 
@@ -360,6 +399,7 @@ async function queryPeriodMetrics(
     awdStorageFees: scale(awdStorageFees),
     returnProcessingFees: scale(returnProcessingFees),
     otherFees: scale(otherFees),
+    reversalReimbursement: scale(reversalReimbursement),
     totalFees: scale(totalFees),
 
     adSpend: scale(adSpend),
@@ -424,12 +464,27 @@ export async function queryProductRows(
     prisma.dailySale.groupBy({
       by: ["productId"],
       where: { productId: { in: productIds }, date: { gte: start, lte: today } },
-      _sum: { grossSales: true, unitsSold: true, orderCount: true, refundAmount: true, refundCount: true },
+      _sum: {
+        grossSales: true,
+        unitsSold: true,
+        orderCount: true,
+        refundAmount: true,
+        refundCount: true,
+        promoAmount: true,
+      },
     }),
     prisma.dailyFee.groupBy({
       by: ["productId"],
       where: { productId: { in: productIds }, date: { gte: start, lte: today } },
-      _sum: { referralFee: true, fbaFee: true, storageFee: true, awdStorageFee: true, returnProcessingFee: true, otherFees: true },
+      _sum: {
+        referralFee: true,
+        fbaFee: true,
+        storageFee: true,
+        awdStorageFee: true,
+        returnProcessingFee: true,
+        otherFees: true,
+        reimbursement: true,
+      },
     }),
     prisma.dailyAd.groupBy({
       by: ["productId"],
@@ -452,7 +507,8 @@ export async function queryProductRows(
     const grossSales = toNum(sales?.grossSales);
     const refunds = toNum(sales?.refundAmount);
     const refundCount = sales?.refundCount ?? 0;
-    const netRevenue = grossSales - refunds;
+    const promoAmount = toNum(sales?.promoAmount);
+    const netRevenue = grossSales - refunds - promoAmount;
     const unitsSold = sales?.unitsSold ?? 0;
     const orderCount = sales?.orderCount ?? 0;
 
@@ -462,7 +518,8 @@ export async function queryProductRows(
       toNum(fees?.storageFee) +
       toNum(fees?.awdStorageFee) +
       toNum(fees?.returnProcessingFee) +
-      toNum(fees?.otherFees);
+      toNum(fees?.otherFees) -
+      toNum(fees?.reimbursement);
 
     const adSpend = toNum(ads?.spend);
     const adSales = toNum(ads?.attributedSales);

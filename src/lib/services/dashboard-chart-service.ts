@@ -59,7 +59,7 @@ export async function getChartViewData(userId: string): Promise<ChartViewData> {
     prisma.dailyFee.groupBy({
       by: ["date"],
       where: { product: { userId }, date: { gte: start, lte: today } },
-      _sum: { referralFee: true, fbaFee: true, storageFee: true, awdStorageFee: true, returnProcessingFee: true, otherFees: true },
+      _sum: { referralFee: true, fbaFee: true, storageFee: true, awdStorageFee: true, returnProcessingFee: true, otherFees: true, reimbursement: true },
     }),
     prisma.dailyAd.groupBy({
       by: ["date"],
@@ -104,6 +104,7 @@ export async function getChartViewData(userId: string): Promise<ChartViewData> {
     awdStorageFees: number;
     returnFees: number;
     otherFees: number;
+    reimbursement: number;
     adSpend: number;
     adSales: number;
   };
@@ -114,7 +115,7 @@ export async function getChartViewData(userId: string): Promise<ChartViewData> {
     if (!buckets.has(key)) {
       buckets.set(key, {
         grossSales: 0, refunds: 0, unitsSold: 0,
-        referralFees: 0, fbaFees: 0, storageFees: 0, awdStorageFees: 0, returnFees: 0, otherFees: 0,
+        referralFees: 0, fbaFees: 0, storageFees: 0, awdStorageFees: 0, returnFees: 0, otherFees: 0, reimbursement: 0,
         adSpend: 0, adSales: 0,
       });
     }
@@ -138,6 +139,7 @@ export async function getChartViewData(userId: string): Promise<ChartViewData> {
     b.awdStorageFees += toNum(row._sum.awdStorageFee);
     b.returnFees += toNum(row._sum.returnProcessingFee);
     b.otherFees += toNum(row._sum.otherFees);
+    b.reimbursement += toNum(row._sum.reimbursement);
   }
 
   for (const row of adsByDate) {
@@ -159,7 +161,7 @@ export async function getChartViewData(userId: string): Promise<ChartViewData> {
     const grossSales = b?.grossSales ?? 0;
     const refunds = b?.refunds ?? 0;
     const netRevenue = grossSales - refunds;
-    const totalFees = (b?.referralFees ?? 0) + (b?.fbaFees ?? 0) + (b?.storageFees ?? 0) + (b?.awdStorageFees ?? 0) + (b?.returnFees ?? 0) + (b?.otherFees ?? 0);
+    const totalFees = (b?.referralFees ?? 0) + (b?.fbaFees ?? 0) + (b?.storageFees ?? 0) + (b?.awdStorageFees ?? 0) + (b?.returnFees ?? 0) + (b?.otherFees ?? 0) - (b?.reimbursement ?? 0);
     const adSpend = b?.adSpend ?? 0;
     const adSales = b?.adSales ?? 0;
     const profit = netRevenue - totalFees - totalCogs - adSpend;
@@ -211,7 +213,7 @@ async function queryProductPerformance(
     prisma.dailyFee.groupBy({
       by: ["productId"],
       where: { productId: { in: productIds }, date: { gte: start, lte: end } },
-      _sum: { referralFee: true, fbaFee: true, storageFee: true, awdStorageFee: true, returnProcessingFee: true, otherFees: true },
+      _sum: { referralFee: true, fbaFee: true, storageFee: true, awdStorageFee: true, returnProcessingFee: true, otherFees: true, reimbursement: true },
     }),
     prisma.dailyAd.groupBy({
       by: ["productId"],
@@ -238,7 +240,8 @@ async function queryProductPerformance(
 
     const totalFees =
       toNum(fees?.referralFee) + toNum(fees?.fbaFee) + toNum(fees?.storageFee) +
-      toNum(fees?.awdStorageFee) + toNum(fees?.returnProcessingFee) + toNum(fees?.otherFees);
+      toNum(fees?.awdStorageFee) + toNum(fees?.returnProcessingFee) + toNum(fees?.otherFees) -
+      toNum(fees?.reimbursement);
 
     const adSpend = toNum(ads?.spend);
     const adSales = toNum(ads?.attributedSales);

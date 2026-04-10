@@ -73,6 +73,7 @@ export async function getDashboardInsight(userId: string): Promise<string> {
         awdStorageFee: true,
         returnProcessingFee: true,
         otherFees: true,
+        reimbursement: true,
       },
     }),
     prisma.dailyAd.groupBy({
@@ -145,7 +146,8 @@ export async function getDashboardInsight(userId: string): Promise<string> {
       toNum(fees?.storageFee) +
       toNum(fees?.awdStorageFee) +
       toNum(fees?.returnProcessingFee) +
-      toNum(fees?.otherFees);
+      toNum(fees?.otherFees) -
+      toNum(fees?.reimbursement);
 
     const adSpend = toNum(ads?.spend);
     const adSales = toNum(ads?.attributedSales);

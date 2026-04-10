@@ -86,7 +86,7 @@ export async function getProductDrawer(
     }),
     prisma.dailyFee.aggregate({
       where: { productId, date: { gte: start, lte: today } },
-      _sum: { referralFee: true, fbaFee: true, storageFee: true, awdStorageFee: true, returnProcessingFee: true, otherFees: true },
+      _sum: { referralFee: true, fbaFee: true, storageFee: true, awdStorageFee: true, returnProcessingFee: true, otherFees: true, reimbursement: true },
     }),
     prisma.dailyAd.aggregate({
       where: { productId, date: { gte: start, lte: today } },
@@ -105,7 +105,8 @@ export async function getProductDrawer(
     toNum(feesAgg._sum.storageFee) +
     toNum(feesAgg._sum.awdStorageFee) +
     toNum(feesAgg._sum.returnProcessingFee) +
-    toNum(feesAgg._sum.otherFees);
+    toNum(feesAgg._sum.otherFees) -
+    toNum(feesAgg._sum.reimbursement);
   const netProfit30d = round(grossSales30d - totalFees30d - adSpend30d);
 
   // Inventory block

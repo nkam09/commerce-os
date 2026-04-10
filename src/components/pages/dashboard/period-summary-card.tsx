@@ -134,6 +134,15 @@ export function PeriodSummaryCard({ period, comparisonPeriod, className }: Perio
           valueClassName={period.refundCount > 0 ? "text-warning" : undefined}
         />
 
+        {/* Promo */}
+        {period.promoAmount > 0 && (
+          <MetricRow
+            label="Promo"
+            value={`-${formatCurrency(period.promoAmount)}`}
+            valueClassName="text-warning"
+          />
+        )}
+
         {/* Ad cost */}
         <MetricRow
           label="Adv cost"
@@ -151,6 +160,15 @@ export function PeriodSummaryCard({ period, comparisonPeriod, className }: Perio
           valueClassName={grossProfitColor}
           badge={cp && <ChangeBadge current={period.grossProfit} base={cp.grossProfit} metricKey="grossProfit" />}
         />
+
+        {/* Indirect Expenses */}
+        {period.indirectExpenseTotal > 0 && (
+          <MetricRow
+            label="Indirect expenses"
+            value={`-${formatCurrency(period.indirectExpenseTotal)}`}
+            valueClassName="text-danger"
+          />
+        )}
 
         {/* Net Profit — bold, emphasized */}
         <MetricRow
@@ -237,9 +255,26 @@ export function PeriodSummaryCard({ period, comparisonPeriod, className }: Perio
                 valueClassName="text-danger"
                 small
               />
+              <MetricRow label="Promo" value={`-${formatCurrency(period.promoAmount)}`} valueClassName="text-danger" small />
               <MetricRow label="Reimbursements" value={formatCurrency(period.reimbursements)} valueClassName={period.reimbursements > 0 ? "text-success" : undefined} small />
               <MetricRow label="Net Revenue" value={formatCurrency(period.netRevenue)} bold small />
             </BreakdownSection>
+
+            {/* Refund Cost breakdown */}
+            {(period.refunds > 0 || period.refundCommission > 0 || period.refundedReferralFee > 0) && (
+              <BreakdownSection title="Refund Cost">
+                <MetricRow label="Refunded Amount" value={`-${formatCurrency(period.refunds)}`} valueClassName="text-danger" small />
+                <MetricRow label="Refund Commission" value={`-${formatCurrency(period.refundCommission)}`} valueClassName="text-danger" small />
+                <MetricRow label="Refunded Referral Fee" value={formatCurrency(period.refundedReferralFee)} valueClassName={period.refundedReferralFee > 0 ? "text-success" : undefined} small />
+                <MetricRow
+                  label="Total Refund Cost"
+                  value={`-${formatCurrency(period.refunds + period.refundCommission - period.refundedReferralFee)}`}
+                  valueClassName="text-danger"
+                  bold
+                  small
+                />
+              </BreakdownSection>
+            )}
 
             {/* Units breakdown */}
             <BreakdownSection title="Units">
@@ -268,6 +303,14 @@ export function PeriodSummaryCard({ period, comparisonPeriod, className }: Perio
               <MetricRow label="AWD Storage Fees" value={`-${formatCurrency(period.awdStorageFees)}`} valueClassName="text-danger" small />
               <MetricRow label="Return Processing" value={`-${formatCurrency(period.returnProcessingFees)}`} valueClassName="text-danger" small />
               <MetricRow label="Other Fees" value={`-${formatCurrency(period.otherFees)}`} valueClassName="text-danger" small />
+              {period.reversalReimbursement > 0 && (
+                <MetricRow
+                  label="Reversal Reimbursement"
+                  value={`+${formatCurrency(period.reversalReimbursement)}`}
+                  valueClassName="text-success"
+                  small
+                />
+              )}
               <MetricRow label="Total Fees" value={`-${formatCurrency(period.totalFees)}`} valueClassName="text-danger" bold small />
             </BreakdownSection>
 
