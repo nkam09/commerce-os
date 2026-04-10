@@ -296,8 +296,8 @@ export function parseSettlementReport(
     const bucket = classifySettlementFee(transactionType);
     if (!bucket) continue;
 
-    // Settlement fees store their amount in other-fee-amount (not price-amount)
-    const otherFeeAmountRaw = (row["other-fee-amount"] ?? "").trim();
+    // Settlement fees store their amount in other-amount (not price-amount)
+    const otherFeeAmountRaw = (row["other-amount"] ?? "").trim();
     if (!otherFeeAmountRaw) continue;
 
     const rawAmount = parseNumber(otherFeeAmountRaw);
