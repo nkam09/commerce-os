@@ -1,14 +1,6 @@
-const { PrismaClient } = require("@prisma/client");
-const p = new PrismaClient();
-
-async function main() {
-  const cursors = await p.syncCursor.findMany({
-    orderBy: { updatedAt: "desc" },
-  });
-  console.log("All sync cursors:");
-  for (const c of cursors) {
-    console.log(c.jobName, "->", c.cursor, "updated:", c.updatedAt);
-  }
-  await p["$disconnect"]();
-}
-main();
+const{PrismaClient}=require('@prisma/client');
+const p=new PrismaClient();
+p.$queryRawUnsafe("SELECT \"jobName\", cursor FROM sync_cursors WHERE \"jobName\" = 'sync-settlement-refunds'")
+.then(r=>console.log(r))
+.catch(e=>console.error(e))
+.finally(()=>p.$disconnect());

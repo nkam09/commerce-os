@@ -25,8 +25,23 @@
  *   8. Upsert settlement fees into daily_fees (storage, disposal, subscription)
  *      — account-level fees (no SKU) are attributed to the first active product
  *
- * Cursor: ISO date string stored in SyncCursor(connectionId, "sync-settlement-refunds").
- * On first run, defaults to 90 days ago.
+ * Cursor: JSON object stored in SyncCursor(connectionId, "sync-settlement-refunds").
+ *   {
+ *     "createdSince": "2026-04-06T16:00:00Z",
+ *     "processedSettlementIds": ["25861519391", "26017238411", ...]
+ *   }
+ * Falls back to treating the cursor as a plain ISO timestamp string for
+ * backwards compatibility with the pre-JSON format.
+ *
+ * On first run, createdSince defaults to 90 days ago.
+ *
+ * Why track processedSettlementIds:
+ *   Phases 3 (fee adjustments) and 4 (settlement fees) use subtract-from-
+ *   existing and add-to-existing semantics respectively, which are NOT
+ *   idempotent. To make the cursor 24h rewind safe, we track every
+ *   settlement-id we've already processed and skip it on the next run.
+ *   The list is naturally bounded: we only keep IDs that still appear in
+ *   the current listing window (≤ 90 days), so old entries self-prune.
  *
  * IMPORTANT: Two-phase approach — all reports are downloaded and parsed first,
  * then all rows are written, preventing partial overwrites.
@@ -382,6 +397,43 @@ async function normalizeSettlementFeeRows(
   };
 }
 
+// ─── Cursor serialization ───────────────────────────────────────────────────
+
+type CursorData = {
+  createdSince: string;              // ISO timestamp
+  processedSettlementIds: string[];  // settlement-ids already written
+};
+
+/**
+ * Parses a cursor value into structured data.
+ * Accepts either a JSON object (new format) or a plain ISO timestamp
+ * string (legacy format, for backwards compatibility).
+ */
+function parseCursor(raw: string): CursorData {
+  try {
+    const obj = JSON.parse(raw);
+    if (
+      obj &&
+      typeof obj === "object" &&
+      typeof obj.createdSince === "string"
+    ) {
+      return {
+        createdSince: obj.createdSince,
+        processedSettlementIds: Array.isArray(obj.processedSettlementIds)
+          ? obj.processedSettlementIds.filter((x: unknown): x is string => typeof x === "string")
+          : [],
+      };
+    }
+  } catch {
+    // Not JSON — fall through to legacy handling
+  }
+  return { createdSince: raw, processedSettlementIds: [] };
+}
+
+function serializeCursor(data: CursorData): string {
+  return JSON.stringify(data);
+}
+
 // ─── Main Job ────────────────────────────────────────────────────────────────
 
 export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResult> {
@@ -392,15 +444,22 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
   try {
     const client = getSpClientForUser();
     const maps = await loadLookupMaps(ctx.userId);
-    const cursor = await getCursor(ctx.spConnectionId, JOB_NAME);
+    const rawCursor = await getCursor(ctx.spConnectionId, JOB_NAME);
+    const cursorData = parseCursor(rawCursor);
+    const alreadyProcessedSet = new Set(cursorData.processedSettlementIds);
 
     // On first run (cursor is epoch), look back 90 days
-    const cursorDate = new Date(cursor);
+    const cursorDate = new Date(cursorData.createdSince);
     const ninetyDaysAgo = new Date(Date.now() - INITIAL_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
-    const effectiveSince = cursorDate < ninetyDaysAgo ? ninetyDaysAgo.toISOString() : cursor;
+    const effectiveSince = cursorDate < ninetyDaysAgo
+      ? ninetyDaysAgo.toISOString()
+      : cursorData.createdSince;
 
     console.log(
-      `[sync-settlement-refunds] cursor=${cursor} effectiveSince=${effectiveSince} marketplace=${ctx.marketplace.code}`
+      `[sync-settlement-refunds] createdSince=${cursorData.createdSince} ` +
+        `effectiveSince=${effectiveSince} ` +
+        `alreadyProcessed=${alreadyProcessedSet.size} ` +
+        `marketplace=${ctx.marketplace.code}`
     );
 
     // ── Phase 1: List and download all settlement reports since cursor ──
@@ -443,15 +502,27 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
     }
 
     // Download and parse all reports, collecting refund rows, fee adjustments,
-    // and settlement fee rows (storage, disposal, subscription)
+    // and settlement fee rows (storage, disposal, subscription).
+    //
+    // Reports whose settlement-id is already in alreadyProcessedSet are
+    // downloaded and parsed (required to read settlement-id) but their
+    // data is NOT written — this prevents double-counting on the 24h
+    // rewind overlap window.
+    //
+    // newProcessedIds is rebuilt from scratch each run using only the
+    // settlement-ids that appear in this run's listing window. This
+    // naturally prunes old entries: anything outside the ≤90-day listing
+    // window disappears from the cursor.
     const allRefundRows: RawSettlementRefundRow[] = [];
     const allFeeAdjustments: RawSettlementFeeAdjustment[] = [];
     const allFeeRows: RawSettlementFeeRow[] = [];
+    const newProcessedIds: string[] = [];
     let totalLines = 0;
     let totalRefundLines = 0;
     let totalFeeAdjLines = 0;
     let totalFeeRowLines = 0;
-    let latestCreatedTime = cursor;
+    let skippedAlreadyProcessed = 0;
+    let latestCreatedTime = cursorData.createdSince;
 
     for (const report of doneReports) {
       console.log(
@@ -465,6 +536,24 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
       );
 
       const parsed = parseSettlementReport(text, ctx.marketplace.code);
+
+      // Track latest createdTime for cursor advancement regardless of skip
+      if (report.createdTime > latestCreatedTime) {
+        latestCreatedTime = report.createdTime;
+      }
+
+      // Dedup by settlement-id: skip if already processed on a prior run.
+      // Still record it in newProcessedIds so it stays in the cursor as
+      // long as it's within the listing window.
+      if (parsed.settlementId && alreadyProcessedSet.has(parsed.settlementId)) {
+        skippedAlreadyProcessed++;
+        newProcessedIds.push(parsed.settlementId);
+        console.log(
+          `[sync-settlement-refunds] report ${report.reportId}: ` +
+            `settlement=${parsed.settlementId} ALREADY PROCESSED — skipping writes`
+        );
+        continue;
+      }
 
       console.log(
         `[sync-settlement-refunds] report ${report.reportId}: ` +
@@ -483,10 +572,17 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
       totalFeeAdjLines += parsed.feeAdjLines;
       totalFeeRowLines += parsed.feeRowLines;
 
-      // Track the latest report creation time for cursor advancement
-      if (report.createdTime > latestCreatedTime) {
-        latestCreatedTime = report.createdTime;
+      // Mark this settlement-id as processed going forward
+      if (parsed.settlementId) {
+        newProcessedIds.push(parsed.settlementId);
+        alreadyProcessedSet.add(parsed.settlementId);
       }
+    }
+
+    if (skippedAlreadyProcessed > 0) {
+      console.log(
+        `[sync-settlement-refunds] skipped ${skippedAlreadyProcessed} already-processed reports (dedup by settlement-id)`
+      );
     }
 
     // ── Phase 2: Normalize and upsert all refund rows ──────────────────
@@ -585,14 +681,36 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
     }
 
     console.log(
-      `[sync-settlement-refunds] done: ${doneReports.length} reports, ` +
+      `[sync-settlement-refunds] done: ${doneReports.length} reports ` +
+        `(${skippedAlreadyProcessed} skipped as already-processed), ` +
         `${totalRefundLines} refund lines → ${totalWritten} rows written, ` +
         `${totalFeeAdjLines} fee adj lines → ${totalFeeAdjApplied} applied, ` +
         `${totalFeeRowLines} settlement fee lines → ${totalFeeRowsWritten} applied`
     );
 
-    // Advance cursor to the latest report creation time
-    await updateCursor(ctx.spConnectionId, JOB_NAME, latestCreatedTime);
+    // Advance cursor to 24 hours BEFORE the latest report's createdTime.
+    // Why the 24h rewind: Amazon can publish multiple settlement reports on
+    // the same day with different timestamps. If we used latestCreatedTime
+    // directly, any report created minutes before that timestamp (same day,
+    // earlier time) would be permanently skipped on subsequent runs. By
+    // rewinding 24h we guarantee same-day reports are always re-discovered.
+    //
+    // Double-counting is prevented by processedSettlementIds dedup above:
+    // re-discovered reports have their settlement-id checked against the
+    // set and their data writes are skipped.
+    const latestCreated = new Date(latestCreatedTime);
+    latestCreated.setHours(latestCreated.getHours() - 24);
+    const nextCreatedSince = latestCreated.toISOString();
+
+    // newProcessedIds contains every settlement-id seen in this run's
+    // listing window. IDs from reports outside the window are dropped
+    // naturally, keeping the set bounded to the last ~90 days.
+    const nextCursor = serializeCursor({
+      createdSince: nextCreatedSince,
+      processedSettlementIds: newProcessedIds,
+    });
+
+    await updateCursor(ctx.spConnectionId, JOB_NAME, nextCursor);
 
     await completeJobRun(runId, {
       fetchedCount: totalLines,
@@ -602,9 +720,10 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
     return {
       fetchedCount: totalLines,
       writtenCount: totalWritten,
-      nextCursor: latestCreatedTime,
+      nextCursor,
       notes:
-        `${doneReports.length} settlement reports, ` +
+        `${doneReports.length} settlement reports ` +
+        `(${skippedAlreadyProcessed} deduped), ` +
         `${totalRefundLines} refund lines, ` +
         `${totalFeeAdjApplied} fee adjustments, ` +
         `${totalFeeRowsWritten} settlement fees ` +
