@@ -22,6 +22,8 @@
  *   5. Resolve SKU → productId (settlements use SKU, not ASIN)
  *   6. Upsert into daily_sales: refundCount + refundAmount
  *   7. Apply fee adjustments to daily_fees (reduce fees by credited amounts)
+ *   8. Upsert settlement fees into daily_fees (storage, disposal, subscription)
+ *      — account-level fees (no SKU) are attributed to the first active product
  *
  * Cursor: ISO date string stored in SyncCursor(connectionId, "sync-settlement-refunds").
  * On first run, defaults to 90 days ago.
@@ -33,7 +35,11 @@
 import { prisma } from "@/lib/db/prisma";
 import { getSpClientForUser } from "@/lib/amazon/get-sp-client-for-user";
 import { parseSettlementReport } from "@/lib/amazon/settlement-report-parser";
-import type { RawSettlementRefundRow, RawSettlementFeeAdjustment } from "@/lib/amazon/settlement-report-parser";
+import type {
+  RawSettlementRefundRow,
+  RawSettlementFeeAdjustment,
+  RawSettlementFeeRow,
+} from "@/lib/amazon/settlement-report-parser";
 import { loadLookupMaps } from "@/lib/sync/sales-normalization-service";
 import type { LookupMaps } from "@/lib/sync/sales-normalization-service";
 import {
@@ -216,6 +222,157 @@ async function applyFeeAdjustments(
   return { applied, skippedNoFeeRow, skippedUnknownSku, skippedUnknownMarketplace };
 }
 
+// ─── Settlement Fee Normalization ────────────────────────────────────────────
+
+type SettlementFeeNormResult = {
+  written: number;
+  storageTotal: number;
+  disposalTotal: number;
+  subscriptionTotal: number;
+  otherTotal: number;
+  skippedUnknownMarketplace: number;
+  skippedNoProduct: number;
+};
+
+/**
+ * Finds the first active product for a user to attribute account-level fees to.
+ * These are bulk charges (storage, subscription) that have no SKU attribution,
+ * so we pick one product as the "owner". The tiles service sums daily_fees
+ * across all products for period totals, so the attribution is transparent
+ * at the dashboard level.
+ */
+async function getFirstProductId(userId: string): Promise<string | null> {
+  const product = await prisma.product.findFirst({
+    where: { userId, status: { not: "ARCHIVED" } },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  return product?.id ?? null;
+}
+
+/**
+ * Upserts settlement fee data into DailyFee.
+ *
+ * For rows WITH a SKU (disposal): resolves SKU → productId and adds fees
+ * to the appropriate column of that product's DailyFee row.
+ *
+ * For rows WITHOUT a SKU (storage, subscription): attributes to the
+ * fallback product (first active product). These are account-level charges
+ * that can't be per-product attributed.
+ *
+ * Mapping:
+ *   storageFee      → DailyFee.storageFee
+ *   disposalFee     → DailyFee.otherFees
+ *   subscriptionFee → DailyFee.otherFees
+ *   otherFee        → DailyFee.otherFees
+ *
+ * Uses ADD semantics (existing value + new value) to avoid overwriting
+ * fees written by sync-finances. For freshly-created rows, populates
+ * only the settlement fee columns and zeros the rest.
+ */
+async function normalizeSettlementFeeRows(
+  rows: RawSettlementFeeRow[],
+  maps: LookupMaps,
+  fallbackProductId: string | null
+): Promise<SettlementFeeNormResult> {
+  let written = 0;
+  let storageTotal = 0;
+  let disposalTotal = 0;
+  let subscriptionTotal = 0;
+  let otherTotal = 0;
+  let skippedUnknownMarketplace = 0;
+  let skippedNoProduct = 0;
+
+  for (const row of rows) {
+    let productId: string | undefined;
+
+    if (row.sku) {
+      productId = maps.skuToProductId.get(row.sku);
+    }
+    if (!productId) {
+      productId = fallbackProductId ?? undefined;
+    }
+    if (!productId) {
+      skippedNoProduct++;
+      continue;
+    }
+
+    const marketplaceId = maps.codeToMarketplaceId.get(row.marketplaceCode);
+    if (!marketplaceId) {
+      skippedUnknownMarketplace++;
+      continue;
+    }
+
+    const storageAdd = row.storageFee;
+    // disposal + subscription + other all go into otherFees
+    const otherAdd = row.disposalFee + row.subscriptionFee + row.otherFee;
+
+    if (storageAdd === 0 && otherAdd === 0) continue;
+
+    const existing = await prisma.dailyFee.findUnique({
+      where: {
+        productId_marketplaceId_date: {
+          productId,
+          marketplaceId,
+          date: row.date,
+        },
+      },
+      select: {
+        referralFee: true,
+        fbaFee: true,
+        storageFee: true,
+        returnProcessingFee: true,
+        otherFees: true,
+      },
+    });
+
+    if (existing) {
+      await prisma.dailyFee.update({
+        where: {
+          productId_marketplaceId_date: {
+            productId,
+            marketplaceId,
+            date: row.date,
+          },
+        },
+        data: {
+          storageFee: Number(existing.storageFee) + storageAdd,
+          otherFees: Number(existing.otherFees) + otherAdd,
+        },
+      });
+    } else {
+      await prisma.dailyFee.create({
+        data: {
+          productId,
+          marketplaceId,
+          date: row.date,
+          referralFee: 0,
+          fbaFee: 0,
+          storageFee: storageAdd,
+          returnProcessingFee: 0,
+          otherFees: otherAdd,
+        },
+      });
+    }
+
+    written++;
+    storageTotal += row.storageFee;
+    disposalTotal += row.disposalFee;
+    subscriptionTotal += row.subscriptionFee;
+    otherTotal += row.otherFee;
+  }
+
+  return {
+    written,
+    storageTotal,
+    disposalTotal,
+    subscriptionTotal,
+    otherTotal,
+    skippedUnknownMarketplace,
+    skippedNoProduct,
+  };
+}
+
 // ─── Main Job ────────────────────────────────────────────────────────────────
 
 export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResult> {
@@ -276,12 +433,15 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
       return { fetchedCount: 0, writtenCount: 0, notes: "no settlement reports found" };
     }
 
-    // Download and parse all reports, collecting refund rows and fee adjustments
+    // Download and parse all reports, collecting refund rows, fee adjustments,
+    // and settlement fee rows (storage, disposal, subscription)
     const allRefundRows: RawSettlementRefundRow[] = [];
     const allFeeAdjustments: RawSettlementFeeAdjustment[] = [];
+    const allFeeRows: RawSettlementFeeRow[] = [];
     let totalLines = 0;
     let totalRefundLines = 0;
     let totalFeeAdjLines = 0;
+    let totalFeeRowLines = 0;
     let latestCreatedTime = cursor;
 
     for (const report of doneReports) {
@@ -301,15 +461,18 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
         `[sync-settlement-refunds] report ${report.reportId}: ` +
           `settlement=${parsed.settlementId}, ${parsed.totalLines} lines, ` +
           `${parsed.refundLines} refund lines → ${parsed.refundRows.length} aggregated rows, ` +
-          `${parsed.feeAdjLines} fee adj lines → ${parsed.feeAdjustments.length} fee adj rows` +
+          `${parsed.feeAdjLines} fee adj lines → ${parsed.feeAdjustments.length} fee adj rows, ` +
+          `${parsed.feeRowLines} settlement fee lines → ${parsed.feeRows.length} fee rows` +
           (parsed.skippedNoSku > 0 ? ` (skipped ${parsed.skippedNoSku} without SKU)` : "")
       );
 
       allRefundRows.push(...parsed.refundRows);
       allFeeAdjustments.push(...parsed.feeAdjustments);
+      allFeeRows.push(...parsed.feeRows);
       totalLines += parsed.totalLines;
       totalRefundLines += parsed.refundLines;
       totalFeeAdjLines += parsed.feeAdjLines;
+      totalFeeRowLines += parsed.feeRowLines;
 
       // Track the latest report creation time for cursor advancement
       if (report.createdTime > latestCreatedTime) {
@@ -361,10 +524,59 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
       );
     }
 
+    // ── Phase 4: Apply settlement fees (storage, disposal, subscription) ──
+
+    let totalFeeRowsWritten = 0;
+    let storageTotal = 0;
+    let disposalTotal = 0;
+    let subscriptionTotal = 0;
+    let otherFeeTotal = 0;
+
+    if (allFeeRows.length > 0) {
+      console.log(
+        `[sync-settlement-refunds] applying ${allFeeRows.length} settlement fee rows`
+      );
+
+      const fallbackProductId = await getFirstProductId(ctx.userId);
+
+      if (!fallbackProductId) {
+        console.log(
+          `[sync-settlement-refunds] no fallback product found — account-level fees will be skipped`
+        );
+      }
+
+      const feeRowResult = await normalizeSettlementFeeRows(
+        allFeeRows,
+        maps,
+        fallbackProductId
+      );
+
+      totalFeeRowsWritten = feeRowResult.written;
+      storageTotal = feeRowResult.storageTotal;
+      disposalTotal = feeRowResult.disposalTotal;
+      subscriptionTotal = feeRowResult.subscriptionTotal;
+      otherFeeTotal = feeRowResult.otherTotal;
+
+      console.log(
+        `[sync-settlement-refunds] applied ${feeRowResult.written} settlement fee rows ` +
+          `(storage: $${storageTotal.toFixed(2)}, ` +
+          `disposal: $${disposalTotal.toFixed(2)}, ` +
+          `subscription: $${subscriptionTotal.toFixed(2)}, ` +
+          `other: $${otherFeeTotal.toFixed(2)})` +
+          (feeRowResult.skippedNoProduct > 0
+            ? `, skipped ${feeRowResult.skippedNoProduct} (no product)`
+            : "") +
+          (feeRowResult.skippedUnknownMarketplace > 0
+            ? `, skipped ${feeRowResult.skippedUnknownMarketplace} (unknown marketplace)`
+            : "")
+      );
+    }
+
     console.log(
       `[sync-settlement-refunds] done: ${doneReports.length} reports, ` +
         `${totalRefundLines} refund lines → ${totalWritten} rows written, ` +
-        `${totalFeeAdjLines} fee adj lines → ${totalFeeAdjApplied} applied`
+        `${totalFeeAdjLines} fee adj lines → ${totalFeeAdjApplied} applied, ` +
+        `${totalFeeRowLines} settlement fee lines → ${totalFeeRowsWritten} applied`
     );
 
     // Advance cursor to the latest report creation time
@@ -379,7 +591,14 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
       fetchedCount: totalLines,
       writtenCount: totalWritten,
       nextCursor: latestCreatedTime,
-      notes: `${doneReports.length} settlement reports, ${totalRefundLines} refund lines, ${totalFeeAdjApplied} fee adjustments`,
+      notes:
+        `${doneReports.length} settlement reports, ` +
+        `${totalRefundLines} refund lines, ` +
+        `${totalFeeAdjApplied} fee adjustments, ` +
+        `${totalFeeRowsWritten} settlement fees ` +
+        `(storage: $${storageTotal.toFixed(2)}, ` +
+        `disposal: $${disposalTotal.toFixed(2)}, ` +
+        `subscription: $${subscriptionTotal.toFixed(2)})`,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
