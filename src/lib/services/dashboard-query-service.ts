@@ -64,6 +64,7 @@ export async function getOverviewDashboard(userId: string): Promise<OverviewDash
       referralFee: true,
       fbaFee: true,
       storageFee: true,
+      awdStorageFee: true,
       returnProcessingFee: true,
       otherFees: true,
     },
@@ -89,6 +90,7 @@ export async function getOverviewDashboard(userId: string): Promise<OverviewDash
     toNum(feesAgg._sum.referralFee) +
     toNum(feesAgg._sum.fbaFee) +
     toNum(feesAgg._sum.storageFee) +
+    toNum(feesAgg._sum.awdStorageFee) +
     toNum(feesAgg._sum.returnProcessingFee) +
     toNum(feesAgg._sum.otherFees);
 

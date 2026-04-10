@@ -124,7 +124,7 @@ export async function getPLViewData(userId: string): Promise<PLViewData> {
     prisma.dailyFee.groupBy({
       by: ["productId", "date"],
       where: { productId: { in: productIds }, date: { gte: start, lte: today } },
-      _sum: { referralFee: true, fbaFee: true, storageFee: true, returnProcessingFee: true, otherFees: true },
+      _sum: { referralFee: true, fbaFee: true, storageFee: true, awdStorageFee: true, returnProcessingFee: true, otherFees: true },
     }),
     prisma.dailyAd.groupBy({
       by: ["productId", "date"],
@@ -141,6 +141,7 @@ export async function getPLViewData(userId: string): Promise<PLViewData> {
     referralFees: number;
     fbaFees: number;
     storageFees: number;
+    awdStorageFees: number;
     returnFees: number;
     otherFees: number;
     adSpend: number;
@@ -156,7 +157,7 @@ export async function getPLViewData(userId: string): Promise<PLViewData> {
     if (!pm.has(monthKey)) {
       pm.set(monthKey, {
         grossSales: 0, refunds: 0, unitsSold: 0,
-        referralFees: 0, fbaFees: 0, storageFees: 0, returnFees: 0, otherFees: 0,
+        referralFees: 0, fbaFees: 0, storageFees: 0, awdStorageFees: 0, returnFees: 0, otherFees: 0,
         adSpend: 0,
       });
     }
@@ -179,6 +180,7 @@ export async function getPLViewData(userId: string): Promise<PLViewData> {
     b.referralFees += toNum(row._sum.referralFee);
     b.fbaFees += toNum(row._sum.fbaFee);
     b.storageFees += toNum(row._sum.storageFee);
+    b.awdStorageFees += toNum(row._sum.awdStorageFee);
     b.returnFees += toNum(row._sum.returnProcessingFee);
     b.otherFees += toNum(row._sum.otherFees);
   }
@@ -206,7 +208,7 @@ export async function getPLViewData(userId: string): Promise<PLViewData> {
         revenue: round(b?.grossSales ?? 0),
         cogs: round(landedCogs * unitsSold),
         adSpend: round(b?.adSpend ?? 0),
-        shipping: round((b?.fbaFees ?? 0) + (b?.storageFees ?? 0)),
+        shipping: round((b?.fbaFees ?? 0) + (b?.storageFees ?? 0) + (b?.awdStorageFees ?? 0)),
         refunds: round(b?.refunds ?? 0),
         otherExpenses: round((b?.referralFees ?? 0) + (b?.returnFees ?? 0) + (b?.otherFees ?? 0)),
       };
@@ -262,6 +264,7 @@ type RawBucket = {
   referralFees: number;
   fbaFees: number;
   storageFees: number;
+  awdStorageFees: number;
   returnFees: number;
   otherFees: number;
   adSpend: number;
@@ -272,13 +275,13 @@ type RawBucket = {
 function emptyBucket(): RawBucket {
   return {
     grossSales: 0, refunds: 0, unitsSold: 0, refundCount: 0,
-    referralFees: 0, fbaFees: 0, storageFees: 0, returnFees: 0, otherFees: 0,
+    referralFees: 0, fbaFees: 0, storageFees: 0, awdStorageFees: 0, returnFees: 0, otherFees: 0,
     adSpend: 0, adSales: 0, cogs: 0,
   };
 }
 
 function bucketToMetrics(b: RawBucket, dailyIndirectExpenses: number, days: number): PLColumnMetrics {
-  const amazonFees = round(b.referralFees + b.fbaFees + b.storageFees + b.returnFees + b.otherFees);
+  const amazonFees = round(b.referralFees + b.fbaFees + b.storageFees + b.awdStorageFees + b.returnFees + b.otherFees);
   const grossProfit = round(b.grossSales - b.refunds - amazonFees - b.cogs - b.adSpend);
   const indirectExpenses = round(dailyIndirectExpenses * days);
   const netProfit = round(grossProfit - indirectExpenses);
@@ -354,7 +357,7 @@ export async function getPLColumnsData(
     prisma.dailyFee.groupBy({
       by: ["productId", "date"],
       where: { productId: { in: productIds }, date: { gte: start, lte: today } },
-      _sum: { referralFee: true, fbaFee: true, storageFee: true, returnProcessingFee: true, otherFees: true },
+      _sum: { referralFee: true, fbaFee: true, storageFee: true, awdStorageFee: true, returnProcessingFee: true, otherFees: true },
     }),
     prisma.dailyAd.groupBy({
       by: ["productId", "date"],
@@ -408,6 +411,7 @@ export async function getPLColumnsData(
     b.referralFees += toNum(row._sum.referralFee);
     b.fbaFees += toNum(row._sum.fbaFee);
     b.storageFees += toNum(row._sum.storageFee);
+    b.awdStorageFees += toNum(row._sum.awdStorageFee);
     b.returnFees += toNum(row._sum.returnProcessingFee);
     b.otherFees += toNum(row._sum.otherFees);
   }

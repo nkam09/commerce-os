@@ -68,6 +68,7 @@ export async function getProductsPageData(
           referralFee: true,
           fbaFee: true,
           storageFee: true,
+          awdStorageFee: true,
           returnProcessingFee: true,
           otherFees: true,
         },
@@ -90,6 +91,7 @@ export async function getProductsPageData(
     const totalReferral = p.dailyFees.reduce((s, d) => s + toNum(d.referralFee), 0);
     const totalFba = p.dailyFees.reduce((s, d) => s + toNum(d.fbaFee), 0);
     const totalStorage = p.dailyFees.reduce((s, d) => s + toNum(d.storageFee), 0);
+    const totalAwdStorage = p.dailyFees.reduce((s, d) => s + toNum(d.awdStorageFee), 0);
     const totalOtherFees = p.dailyFees.reduce(
       (s, d) => s + toNum(d.returnProcessingFee) + toNum(d.otherFees),
       0
@@ -112,6 +114,7 @@ export async function getProductsPageData(
       referralFee: totalReferral,
       fbaFee: totalFba,
       storageFee: totalStorage,
+      awdStorageFee: totalAwdStorage,
       otherFees: totalOtherFees,
       adSpend: totalAdSpend,
       landedCogs: fullCogs,

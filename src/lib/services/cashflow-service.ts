@@ -195,7 +195,7 @@ async function getDailyAggregates(
     }),
     prisma.dailyFee.findMany({
       where: { productId: { in: productIds }, date: { gte: start, lte: end } },
-      select: { date: true, referralFee: true, fbaFee: true, storageFee: true, returnProcessingFee: true, otherFees: true },
+      select: { date: true, referralFee: true, fbaFee: true, storageFee: true, awdStorageFee: true, returnProcessingFee: true, otherFees: true },
     }),
     prisma.dailyAd.findMany({
       where: { productId: { in: productIds }, date: { gte: start, lte: end } },
@@ -228,6 +228,7 @@ async function getDailyAggregates(
       toNum(f.referralFee) +
       toNum(f.fbaFee) +
       toNum(f.storageFee) +
+      toNum(f.awdStorageFee) +
       toNum(f.returnProcessingFee) +
       toNum(f.otherFees);
   }

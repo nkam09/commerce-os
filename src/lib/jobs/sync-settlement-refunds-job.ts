@@ -227,6 +227,7 @@ async function applyFeeAdjustments(
 type SettlementFeeNormResult = {
   written: number;
   storageTotal: number;
+  awdStorageTotal: number;
   disposalTotal: number;
   subscriptionTotal: number;
   otherTotal: number;
@@ -262,6 +263,7 @@ async function getFirstProductId(userId: string): Promise<string | null> {
  *
  * Mapping:
  *   storageFee      → DailyFee.storageFee
+ *   awdStorageFee   → DailyFee.awdStorageFee
  *   disposalFee     → DailyFee.otherFees
  *   subscriptionFee → DailyFee.otherFees
  *   otherFee        → DailyFee.otherFees
@@ -277,6 +279,7 @@ async function normalizeSettlementFeeRows(
 ): Promise<SettlementFeeNormResult> {
   let written = 0;
   let storageTotal = 0;
+  let awdStorageTotal = 0;
   let disposalTotal = 0;
   let subscriptionTotal = 0;
   let otherTotal = 0;
@@ -304,10 +307,11 @@ async function normalizeSettlementFeeRows(
     }
 
     const storageAdd = row.storageFee;
+    const awdStorageAdd = row.awdStorageFee;
     // disposal + subscription + other all go into otherFees
     const otherAdd = row.disposalFee + row.subscriptionFee + row.otherFee;
 
-    if (storageAdd === 0 && otherAdd === 0) continue;
+    if (storageAdd === 0 && awdStorageAdd === 0 && otherAdd === 0) continue;
 
     const existing = await prisma.dailyFee.findUnique({
       where: {
@@ -321,6 +325,7 @@ async function normalizeSettlementFeeRows(
         referralFee: true,
         fbaFee: true,
         storageFee: true,
+        awdStorageFee: true,
         returnProcessingFee: true,
         otherFees: true,
       },
@@ -337,6 +342,7 @@ async function normalizeSettlementFeeRows(
         },
         data: {
           storageFee: Number(existing.storageFee) + storageAdd,
+          awdStorageFee: Number(existing.awdStorageFee) + awdStorageAdd,
           otherFees: Number(existing.otherFees) + otherAdd,
         },
       });
@@ -349,6 +355,7 @@ async function normalizeSettlementFeeRows(
           referralFee: 0,
           fbaFee: 0,
           storageFee: storageAdd,
+          awdStorageFee: awdStorageAdd,
           returnProcessingFee: 0,
           otherFees: otherAdd,
         },
@@ -357,6 +364,7 @@ async function normalizeSettlementFeeRows(
 
     written++;
     storageTotal += row.storageFee;
+    awdStorageTotal += row.awdStorageFee;
     disposalTotal += row.disposalFee;
     subscriptionTotal += row.subscriptionFee;
     otherTotal += row.otherFee;
@@ -365,6 +373,7 @@ async function normalizeSettlementFeeRows(
   return {
     written,
     storageTotal,
+    awdStorageTotal,
     disposalTotal,
     subscriptionTotal,
     otherTotal,
@@ -528,6 +537,7 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
 
     let totalFeeRowsWritten = 0;
     let storageTotal = 0;
+    let awdStorageTotal = 0;
     let disposalTotal = 0;
     let subscriptionTotal = 0;
     let otherFeeTotal = 0;
@@ -553,6 +563,7 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
 
       totalFeeRowsWritten = feeRowResult.written;
       storageTotal = feeRowResult.storageTotal;
+      awdStorageTotal = feeRowResult.awdStorageTotal;
       disposalTotal = feeRowResult.disposalTotal;
       subscriptionTotal = feeRowResult.subscriptionTotal;
       otherFeeTotal = feeRowResult.otherTotal;
@@ -560,6 +571,7 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
       console.log(
         `[sync-settlement-refunds] applied ${feeRowResult.written} settlement fee rows ` +
           `(storage: $${storageTotal.toFixed(2)}, ` +
+          `awd storage: $${awdStorageTotal.toFixed(2)}, ` +
           `disposal: $${disposalTotal.toFixed(2)}, ` +
           `subscription: $${subscriptionTotal.toFixed(2)}, ` +
           `other: $${otherFeeTotal.toFixed(2)})` +
@@ -597,6 +609,7 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
         `${totalFeeAdjApplied} fee adjustments, ` +
         `${totalFeeRowsWritten} settlement fees ` +
         `(storage: $${storageTotal.toFixed(2)}, ` +
+        `awd storage: $${awdStorageTotal.toFixed(2)}, ` +
         `disposal: $${disposalTotal.toFixed(2)}, ` +
         `subscription: $${subscriptionTotal.toFixed(2)})`,
     };

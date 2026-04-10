@@ -49,7 +49,8 @@ export type RawSettlementFeeRow = {
   sku: string;              // may be empty for account-level fees
   marketplaceCode: string;
   date: Date;
-  storageFee: number;       // Storage Fee + AWD Storage Fee
+  storageFee: number;       // Storage Fee (FBA)
+  awdStorageFee: number;    // AWD Storage Fee
   disposalFee: number;      // DisposalComplete
   subscriptionFee: number;  // Subscription Fee
   otherFee: number;         // catch-all for other non-order fees
@@ -153,9 +154,10 @@ function mapFeeType(feeType: string): "referral" | "fba" | "other" {
  */
 function classifySettlementFee(
   transactionType: string
-): "storage" | "disposal" | "subscription" | "other" | null {
+): "storage" | "awdStorage" | "disposal" | "subscription" | "other" | null {
   const t = transactionType.trim();
-  if (t === "Storage Fee" || t === "AWD Storage Fee") return "storage";
+  if (t === "Storage Fee") return "storage";
+  if (t === "AWD Storage Fee") return "awdStorage";
   if (t === "DisposalComplete" || t === "Disposal Complete") return "disposal";
   if (t === "Subscription Fee") return "subscription";
   // Account-level fees with no clear category — uncomment to capture as "other":
@@ -166,6 +168,7 @@ function classifySettlementFee(
 function blankFeeRow(): Omit<RawSettlementFeeRow, "sku" | "marketplaceCode" | "date"> {
   return {
     storageFee: 0,
+    awdStorageFee: 0,
     disposalFee: 0,
     subscriptionFee: 0,
     otherFee: 0,
@@ -185,7 +188,8 @@ function blankFeeRow(): Omit<RawSettlementFeeRow, "sku" | "marketplaceCode" | "d
  *
  * 3. Settlement fees: transaction-type in {Storage Fee, AWD Storage Fee,
  *    DisposalComplete, Subscription Fee}
- *    → bulk charges with no per-order attribution.
+ *    → bulk charges with no per-order attribution. Storage Fee and
+ *    AWD Storage Fee are tracked separately.
  *    Aggregated by (sku, marketplace, date). sku may be empty for account-level fees.
  *    Amounts stored as positive values (absolute).
  *
@@ -324,6 +328,8 @@ export function parseSettlementReport(
     const feeRow = feeRowAgg.get(key)!;
     if (bucket === "storage") {
       feeRow.storageFee += amount;
+    } else if (bucket === "awdStorage") {
+      feeRow.awdStorageFee += amount;
     } else if (bucket === "disposal") {
       feeRow.disposalFee += amount;
     } else if (bucket === "subscription") {

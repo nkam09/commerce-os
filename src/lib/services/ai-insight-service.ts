@@ -70,6 +70,7 @@ export async function getDashboardInsight(userId: string): Promise<string> {
         referralFee: true,
         fbaFee: true,
         storageFee: true,
+        awdStorageFee: true,
         returnProcessingFee: true,
         otherFees: true,
       },
@@ -142,6 +143,7 @@ export async function getDashboardInsight(userId: string): Promise<string> {
       toNum(fees?.referralFee) +
       toNum(fees?.fbaFee) +
       toNum(fees?.storageFee) +
+      toNum(fees?.awdStorageFee) +
       toNum(fees?.returnProcessingFee) +
       toNum(fees?.otherFees);
 

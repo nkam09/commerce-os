@@ -24,6 +24,7 @@ export type PeriodMetrics = {
   referralFees: number;
   fbaFees: number;
   storageFees: number;
+  awdStorageFees: number;
   returnProcessingFees: number;
   otherFees: number;
   totalFees: number;
@@ -241,7 +242,7 @@ async function queryPeriodMetrics(
     }),
     prisma.dailyFee.aggregate({
       where: { product: { userId }, date: { gte: period.from, lte: period.to } },
-      _sum: { referralFee: true, fbaFee: true, storageFee: true, returnProcessingFee: true, otherFees: true },
+      _sum: { referralFee: true, fbaFee: true, storageFee: true, awdStorageFee: true, returnProcessingFee: true, otherFees: true },
     }),
     prisma.dailyAd.aggregate({
       where: { product: { userId }, date: { gte: period.from, lte: period.to } },
@@ -263,9 +264,10 @@ async function queryPeriodMetrics(
   const referralFees = toNum(feesAgg._sum.referralFee);
   const fbaFees = toNum(feesAgg._sum.fbaFee);
   const storageFees = toNum(feesAgg._sum.storageFee);
+  const awdStorageFees = toNum(feesAgg._sum.awdStorageFee);
   const returnProcessingFees = toNum(feesAgg._sum.returnProcessingFee);
   const otherFees = toNum(feesAgg._sum.otherFees);
-  const totalFees = referralFees + fbaFees + storageFees + returnProcessingFees + otherFees;
+  const totalFees = referralFees + fbaFees + storageFees + awdStorageFees + returnProcessingFees + otherFees;
 
   const adSpend = toNum(adsAgg._sum.spend);
   const adSales = toNum(adsAgg._sum.attributedSales);
@@ -355,6 +357,7 @@ async function queryPeriodMetrics(
     referralFees: scale(referralFees),
     fbaFees: scale(fbaFees),
     storageFees: scale(storageFees),
+    awdStorageFees: scale(awdStorageFees),
     returnProcessingFees: scale(returnProcessingFees),
     otherFees: scale(otherFees),
     totalFees: scale(totalFees),
@@ -426,7 +429,7 @@ export async function queryProductRows(
     prisma.dailyFee.groupBy({
       by: ["productId"],
       where: { productId: { in: productIds }, date: { gte: start, lte: today } },
-      _sum: { referralFee: true, fbaFee: true, storageFee: true, returnProcessingFee: true, otherFees: true },
+      _sum: { referralFee: true, fbaFee: true, storageFee: true, awdStorageFee: true, returnProcessingFee: true, otherFees: true },
     }),
     prisma.dailyAd.groupBy({
       by: ["productId"],
@@ -457,6 +460,7 @@ export async function queryProductRows(
       toNum(fees?.referralFee) +
       toNum(fees?.fbaFee) +
       toNum(fees?.storageFee) +
+      toNum(fees?.awdStorageFee) +
       toNum(fees?.returnProcessingFee) +
       toNum(fees?.otherFees);
 

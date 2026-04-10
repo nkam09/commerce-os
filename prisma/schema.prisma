@@ -232,6 +232,7 @@ model DailyFee {
   referralFee           Decimal  @default(0) @db.Decimal(14, 4)
   fbaFee                Decimal  @default(0) @db.Decimal(14, 4)
   storageFee            Decimal  @default(0) @db.Decimal(14, 4)
+  awdStorageFee         Decimal  @default(0) @db.Decimal(14, 4)
   returnProcessingFee   Decimal  @default(0) @db.Decimal(14, 4)
   otherFees             Decimal  @default(0) @db.Decimal(14, 4)
   createdAt             DateTime @default(now())

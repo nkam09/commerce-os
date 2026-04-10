@@ -264,7 +264,8 @@ export function PeriodSummaryCard({ period, comparisonPeriod, className }: Perio
             <BreakdownSection title="Amazon Fees">
               <MetricRow label="Referral Fees" value={`-${formatCurrency(period.referralFees)}`} valueClassName="text-danger" small />
               <MetricRow label="FBA Fees" value={`-${formatCurrency(period.fbaFees)}`} valueClassName="text-danger" small />
-              <MetricRow label="Storage Fees" value={`-${formatCurrency(period.storageFees)}`} valueClassName="text-danger" small />
+              <MetricRow label="FBA Storage Fees" value={`-${formatCurrency(period.storageFees)}`} valueClassName="text-danger" small />
+              <MetricRow label="AWD Storage Fees" value={`-${formatCurrency(period.awdStorageFees)}`} valueClassName="text-danger" small />
               <MetricRow label="Return Processing" value={`-${formatCurrency(period.returnProcessingFees)}`} valueClassName="text-danger" small />
               <MetricRow label="Other Fees" value={`-${formatCurrency(period.otherFees)}`} valueClassName="text-danger" small />
               <MetricRow label="Total Fees" value={`-${formatCurrency(period.totalFees)}`} valueClassName="text-danger" bold small />

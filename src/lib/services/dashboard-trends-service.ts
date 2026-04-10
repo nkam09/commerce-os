@@ -65,7 +65,7 @@ export async function getTrendsViewData(userId: string): Promise<TrendsViewData>
     prisma.dailyFee.groupBy({
       by: ["date"],
       where: { product: { userId }, date: { gte: start, lte: today } },
-      _sum: { referralFee: true, fbaFee: true, storageFee: true, returnProcessingFee: true, otherFees: true },
+      _sum: { referralFee: true, fbaFee: true, storageFee: true, awdStorageFee: true, returnProcessingFee: true, otherFees: true },
     }),
     prisma.dailyAd.groupBy({
       by: ["date"],
@@ -133,7 +133,8 @@ export async function getTrendsViewData(userId: string): Promise<TrendsViewData>
     const key = toMonthKey(row.date);
     const b = getBucket(key);
     b.totalFees += toNum(row._sum.referralFee) + toNum(row._sum.fbaFee) +
-      toNum(row._sum.storageFee) + toNum(row._sum.returnProcessingFee) + toNum(row._sum.otherFees);
+      toNum(row._sum.storageFee) + toNum(row._sum.awdStorageFee) +
+      toNum(row._sum.returnProcessingFee) + toNum(row._sum.otherFees);
   }
 
   for (const row of adsByDate) {
@@ -194,7 +195,7 @@ export async function getTrendsViewData(userId: string): Promise<TrendsViewData>
     prisma.dailyFee.groupBy({
       by: ["productId", "date"],
       where: { product: { userId }, date: { gte: start, lte: today } },
-      _sum: { referralFee: true, fbaFee: true, storageFee: true, returnProcessingFee: true, otherFees: true },
+      _sum: { referralFee: true, fbaFee: true, storageFee: true, awdStorageFee: true, returnProcessingFee: true, otherFees: true },
     }),
     prisma.dailyAd.groupBy({
       by: ["productId", "date"],
@@ -220,7 +221,7 @@ export async function getTrendsViewData(userId: string): Promise<TrendsViewData>
     const k = `${row.productId}::${toMonthKey(row.date)}`;
     if (!prodBuckets.has(k)) prodBuckets.set(k, { grossSales: 0, refunds: 0, unitsSold: 0, orderCount: 0, totalFees: 0, adSpend: 0, adSales: 0 });
     const b = prodBuckets.get(k)!;
-    b.totalFees += toNum(row._sum.referralFee) + toNum(row._sum.fbaFee) + toNum(row._sum.storageFee) + toNum(row._sum.returnProcessingFee) + toNum(row._sum.otherFees);
+    b.totalFees += toNum(row._sum.referralFee) + toNum(row._sum.fbaFee) + toNum(row._sum.storageFee) + toNum(row._sum.awdStorageFee) + toNum(row._sum.returnProcessingFee) + toNum(row._sum.otherFees);
   }
   for (const row of perProdAds) {
     const k = `${row.productId}::${toMonthKey(row.date)}`;

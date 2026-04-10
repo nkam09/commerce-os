@@ -30,6 +30,7 @@ export type ProfitInputs = {
   referralFee: number;
   fbaFee: number;
   storageFee: number;
+  awdStorageFee: number;
   otherFees: number;
   adSpend: number;
   landedCogs: number;
@@ -49,7 +50,12 @@ export type ProfitResult = {
 
 export function calcProfit(inputs: ProfitInputs): ProfitResult {
   const netRevenue = inputs.grossSales - inputs.refundAmount;
-  const totalFees = inputs.referralFee + inputs.fbaFee + inputs.storageFee + inputs.otherFees;
+  const totalFees =
+    inputs.referralFee +
+    inputs.fbaFee +
+    inputs.storageFee +
+    inputs.awdStorageFee +
+    inputs.otherFees;
   const totalCogs = inputs.landedCogs * inputs.unitsSold;
   const grossProfit = netRevenue - totalFees - totalCogs;
   const netProfit = grossProfit - inputs.adSpend;

@@ -148,7 +148,8 @@ const SUMMARY_LINES: SummaryLineItem[] = [
     children: [
       { label: "Referral fee", key: "referralFees" },
       { label: "FBA fee", key: "fbaFees" },
-      { label: "Storage fee", key: "storageFees" },
+      { label: "FBA storage fee", key: "storageFees" },
+      { label: "AWD storage fee", key: "awdStorageFees" },
       { label: "Return processing", key: "returnFees" },
       { label: "Other fees", key: "otherFees" },
     ],
@@ -434,6 +435,7 @@ function ChartPanel({
       referralFees: sd?.referralFees ?? Math.round(totalRevenue * 0.15),
       fbaFees: sd?.fbaFees ?? Math.round(totalRevenue * 0.1),
       storageFees: sd?.storageFees ?? Math.round(totalRevenue * 0.02),
+      awdStorageFees: sd?.awdStorageFees ?? 0,
       returnFees: sd?.returnFees ?? Math.round(totalRevenue * 0.015),
       otherFees: sd?.otherFees ?? Math.round(totalRevenue * 0.015),
       totalCogs: sd?.totalCogs ?? Math.round(totalRevenue * 0.2),
