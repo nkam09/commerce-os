@@ -92,15 +92,21 @@ export async function normalizeSaleRows(
         unitsSold: row.unitsSold,
         orderCount: row.orderCount,
         grossSales: row.grossSales,
-        refundCount: row.refundCount,
-        refundAmount: row.refundAmount,
+        // Settlement-owned fields: seeded to 0 on create, never overwritten on update
+        refundCount: 0,
+        refundAmount: 0,
+        promoAmount: 0,
+        refundCommission: 0,
+        refundedReferralFee: 0,
       },
       update: {
+        // Only order-owned fields are overwritten here.
+        // Settlement-owned fields (refundCount, refundAmount, promoAmount,
+        // refundCommission, refundedReferralFee) are written exclusively by
+        // sync-settlement-refunds-job and must not be touched.
         unitsSold: row.unitsSold,
         orderCount: row.orderCount,
         grossSales: row.grossSales,
-        refundCount: row.refundCount,
-        refundAmount: row.refundAmount,
       },
     });
 
