@@ -195,10 +195,19 @@ export type PPCReportData = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
 const safeDiv = (num: number, den: number): number =>
   den > 0 ? num / den : 0;
+
+/**
+ * Hard cap on total Ads API time so the whole request stays under Render's
+ * 60-second limit. Covers request creation + polling + download for all
+ * reports running in parallel.
+ */
+const ADS_TOTAL_TIMEOUT_MS = 55_000;
+/** Poll interval used while waiting for an Ads report to finish. */
+const POLL_INTERVAL_MS = 5_000;
+/** Max poll attempts (55s / 5s ≈ 11 but we cap higher so the outer timeout wins). */
+const POLL_MAX_ATTEMPTS = 15;
 
 const toNum = (v: unknown): number => {
   if (typeof v === "number") return v;
@@ -212,37 +221,29 @@ const toNum = (v: unknown): number => {
 const formatDate = (d: Date): string => d.toISOString().slice(0, 10);
 
 /**
- * Fetch a single Ads report end-to-end with graceful fallback.
- * Returns rows on success, [] on any failure (pushing the error to warnings).
+ * Poll a single Ads report to COMPLETED, download, and parse.
+ * Returns the parsed rows, or throws on failure/no-url.
  */
-async function fetchAdsReportSafe(
-  label: string,
+async function pollAndDownload(
   ads: AdsApiClient,
-  request: () => Promise<string>,
-  warnings: string[]
+  label: string,
+  reportId: string
 ): Promise<AdsReportRow[]> {
-  console.log(`[ppc-report] >>> ${label}: requesting report...`);
-  try {
-    const reportId = await request();
-    console.log(`[ppc-report]     ${label}: reportId=${reportId}, polling...`);
-    const report = await ads.pollReport(reportId);
-    console.log(
-      `[ppc-report]     ${label}: status=${report.status}, url=${report.url ? "present" : "MISSING"}, size=${report.fileSize ?? "?"}`
-    );
-    if (!report.url) {
-      warnings.push(`${label}: report completed without download URL`);
-      return [];
-    }
-    const buffer = await ads.downloadReport(report.url);
-    const rows = await ads.parseGzipJsonReport(buffer);
-    console.log(`[ppc-report] <<< ${label}: ${rows.length} rows`);
-    return rows;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    warnings.push(`${label} failed: ${msg}`);
-    console.error(`[ppc-report] !!! ${label} failed:`, msg);
-    return [];
+  console.log(`[ppc-report]     ${label}: polling reportId=${reportId}`);
+  const report = await ads.pollReport(reportId, {
+    intervalMs: POLL_INTERVAL_MS,
+    maxAttempts: POLL_MAX_ATTEMPTS,
+  });
+  console.log(
+    `[ppc-report]     ${label}: status=${report.status}, url=${report.url ? "present" : "MISSING"}, size=${report.fileSize ?? "?"}`
+  );
+  if (!report.url) {
+    throw new Error(`${label}: report completed without download URL`);
   }
+  const buffer = await ads.downloadReport(report.url);
+  const rows = await ads.parseGzipJsonReport(buffer);
+  console.log(`[ppc-report] <<< ${label}: ${rows.length} rows`);
+  return rows;
 }
 
 // ─── Main entry ──────────────────────────────────────────────────────────────
@@ -271,81 +272,170 @@ export async function generatePPCReportData(params: {
     console.error(`[ppc-report] ads client init failed:`, msg);
   }
 
-  // ── Fetch all Ads reports in sequence (with delays) ───────────────────────
-  let spCampaignRows: AdsReportRow[] = [];
-  let spPlacementRows: AdsReportRow[] = [];
-  let spAdvertisedRows: AdsReportRow[] = [];
-  let spTargetingRows: AdsReportRow[] = [];
-  let spSearchTermRows: AdsReportRow[] = [];
+  // ── Fetch all Ads reports IN PARALLEL ────────────────────────────────────
+  // Sequential polling (old code) meant: createA → pollA → createB → pollB …
+  // Total time ≈ sum(each). Render's 60s limit hit hard.
+  //
+  // New flow:
+  //   1. Kick off all 5 createReport calls at once (Promise.allSettled).
+  //   2. For every reportId that came back, start a poll+download task
+  //      that writes its rows into a shared `results` map.
+  //   3. Race Promise.all(pollTasks) against ADS_TOTAL_TIMEOUT_MS.
+  //   4. Whatever landed in `results` before the deadline is used; any
+  //      report still in flight is marked as "timed out" and its tab is
+  //      built with whatever partial data we have (usually empty).
+  //
+  // Total time ≈ max(each) instead of sum(each).
+
+  type ReportKey =
+    | "campaigns"
+    | "placements"
+    | "advertised"
+    | "targeting"
+    | "searchTerm";
+
+  type ReportSpec = {
+    key: ReportKey;
+    label: string;
+    request: () => Promise<string>;
+  };
+
+  const results: Partial<Record<ReportKey, AdsReportRow[]>> = {};
 
   if (ads) {
-    spCampaignRows = await fetchAdsReportSafe(
-      "SP campaigns (by campaign)",
-      ads,
-      () =>
-        ads!
-          .requestSPCampaignsReport({
-            profileId: "",
+    const adsRef = ads;
+    const specs: ReportSpec[] = [
+      {
+        key: "campaigns",
+        label: "SP campaigns (by campaign)",
+        request: () =>
+          adsRef
+            .requestSPCampaignsReport({
+              profileId: "",
+              startDate: params.from,
+              endDate: params.to,
+              groupBy: ["campaign"],
+            })
+            .then((r) => r.reportId),
+      },
+      {
+        key: "placements",
+        label: "SP campaigns (by placement)",
+        request: () =>
+          adsRef
+            .requestSPCampaignsReport({
+              profileId: "",
+              startDate: params.from,
+              endDate: params.to,
+              groupBy: ["campaign", "campaignPlacement"],
+            })
+            .then((r) => r.reportId),
+      },
+      {
+        key: "advertised",
+        label: "SP advertised product",
+        request: () =>
+          adsRef.requestSponsoredProductsReport({
             startDate: params.from,
             endDate: params.to,
-            groupBy: ["campaign"],
-          })
-          .then((r) => r.reportId),
-      warnings
-    );
-    await sleep(2000);
-
-    spPlacementRows = await fetchAdsReportSafe(
-      "SP campaigns (by placement)",
-      ads,
-      () =>
-        ads!
-          .requestSPCampaignsReport({
-            profileId: "",
+          }),
+      },
+      {
+        key: "targeting",
+        label: "SP targeting",
+        request: () =>
+          adsRef.requestSPTargetingReport({
             startDate: params.from,
             endDate: params.to,
-            groupBy: ["campaign", "campaignPlacement"],
-          })
-          .then((r) => r.reportId),
-      warnings
-    );
-    await sleep(2000);
+          }),
+      },
+      {
+        key: "searchTerm",
+        label: "SP search term",
+        request: () =>
+          adsRef.requestSPSearchTermReport({
+            startDate: params.from,
+            endDate: params.to,
+          }),
+      },
+    ];
 
-    spAdvertisedRows = await fetchAdsReportSafe(
-      "SP advertised product",
-      ads,
-      () =>
-        ads!.requestSponsoredProductsReport({
-          startDate: params.from,
-          endDate: params.to,
-        }),
-      warnings
+    // Phase 1: fire all createReport calls in parallel.
+    console.log(`[ppc-report] requesting ${specs.length} Ads reports in parallel`);
+    const createStart = Date.now();
+    const created = await Promise.allSettled(
+      specs.map((s) => s.request())
     );
-    await sleep(2000);
+    console.log(
+      `[ppc-report] create phase done in ${Date.now() - createStart}ms`
+    );
 
-    spTargetingRows = await fetchAdsReportSafe(
-      "SP targeting",
-      ads,
-      () =>
-        ads!.requestSPTargetingReport({
-          startDate: params.from,
-          endDate: params.to,
-        }),
-      warnings
-    );
-    await sleep(2000);
+    // Phase 2: start poll+download tasks for every successfully-created
+    // report. Each task writes into `results[key]` on success; failures
+    // push to warnings but never reject the outer Promise.
+    const pollTasks: Promise<void>[] = [];
+    for (let i = 0; i < specs.length; i++) {
+      const spec = specs[i];
+      const createResult = created[i];
+      if (createResult.status === "rejected") {
+        const msg =
+          createResult.reason instanceof Error
+            ? createResult.reason.message
+            : String(createResult.reason);
+        warnings.push(`${spec.label} create failed: ${msg}`);
+        console.error(`[ppc-report] !!! ${spec.label} create failed:`, msg);
+        continue;
+      }
+      const reportId = createResult.value;
+      pollTasks.push(
+        (async () => {
+          try {
+            const rows = await pollAndDownload(adsRef, spec.label, reportId);
+            results[spec.key] = rows;
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            warnings.push(`${spec.label} failed: ${msg}`);
+            console.error(`[ppc-report] !!! ${spec.label} failed:`, msg);
+          }
+        })()
+      );
+    }
 
-    spSearchTermRows = await fetchAdsReportSafe(
-      "SP search term",
-      ads,
-      () =>
-        ads!.requestSPSearchTermReport({
-          startDate: params.from,
-          endDate: params.to,
-        }),
-      warnings
+    // Phase 3: race all poll tasks against the global deadline. Whichever
+    // reports finish first populate `results`; the rest are abandoned.
+    const timeoutPromise = new Promise<"timeout">((resolve) =>
+      setTimeout(() => resolve("timeout"), ADS_TOTAL_TIMEOUT_MS)
     );
+    const pollStart = Date.now();
+    const raceOutcome = await Promise.race([
+      Promise.all(pollTasks).then(() => "done" as const),
+      timeoutPromise,
+    ]);
+    console.log(
+      `[ppc-report] poll phase ${raceOutcome} in ${Date.now() - pollStart}ms`
+    );
+    if (raceOutcome === "timeout") {
+      warnings.push(
+        `Ads API polling exceeded ${ADS_TOTAL_TIMEOUT_MS / 1000}s — some tabs may be incomplete`
+      );
+    }
+
+    // Emit per-report timeout warnings for any reports that are still
+    // missing from `results`.
+    for (const spec of specs) {
+      if (!(spec.key in results)) {
+        if (!warnings.some((w) => w.startsWith(`${spec.label} `))) {
+          warnings.push(`${spec.label}: data unavailable — report timed out`);
+        }
+      }
+    }
   }
+
+  const spCampaignRows: AdsReportRow[] = results.campaigns ?? [];
+  const spPlacementRows: AdsReportRow[] = results.placements ?? [];
+  const spAdvertisedRows: AdsReportRow[] = results.advertised ?? [];
+  const spTargetingRows: AdsReportRow[] = results.targeting ?? [];
+  const spSearchTermRows: AdsReportRow[] = results.searchTerm ?? [];
 
   // ── Tab 1: Daily trend (from spAdvertised date grouping) ──────────────────
   const dailyMap = new Map<
