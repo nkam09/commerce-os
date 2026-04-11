@@ -803,13 +803,14 @@ export function KeywordsPageV2() {
               <thead className="sticky top-0 z-10">
                 {keywordTable.getHeaderGroups().map((hg) => (
                   <tr key={hg.id} className="border-b border-border bg-elevated/50">
-                    {hg.headers.map((h) => (
+                    {hg.headers.map((h, hi) => (
                       <th
                         key={h.id}
                         onClick={h.column.getCanSort() ? h.column.getToggleSortingHandler() : undefined}
                         className={cn(
-                          "px-3 py-2.5 text-left text-[10px] uppercase tracking-wider text-muted-foreground font-semibold whitespace-nowrap",
-                          h.column.getCanSort() && "cursor-pointer select-none hover:text-foreground"
+                          "px-2 md:px-3 py-2.5 text-left text-[10px] uppercase tracking-wider text-muted-foreground font-semibold whitespace-nowrap",
+                          h.column.getCanSort() && "cursor-pointer select-none hover:text-foreground",
+                          hi === 0 && "md:static sticky left-0 z-20 bg-elevated/90 md:bg-elevated/50"
                         )}
                         style={{ width: h.getSize() }}
                       >
@@ -823,22 +824,25 @@ export function KeywordsPageV2() {
                 ))}
               </thead>
               <tbody>
-                {keywordTable.getRowModel().rows.map((row, i) => (
+                {keywordTable.getRowModel().rows.map((row, i) => {
+                  const rowBg = i % 2 === 0 ? "bg-card" : "bg-elevated/10";
+                  return (
                   <tr
                     key={row.id}
-                    className={cn("border-b border-border/50 hover:bg-elevated/30 transition-colors", i % 2 === 0 ? "bg-card" : "bg-elevated/10")}
+                    className={cn("border-b border-border/50 hover:bg-elevated/30 transition-colors", rowBg)}
                   >
-                    {row.getVisibleCells().map((cell) => (
+                    {row.getVisibleCells().map((cell, ci) => (
                       <td
                         key={cell.id}
-                        className="px-3 py-2.5 whitespace-nowrap"
+                        className={cn("px-2 md:px-3 py-2.5 whitespace-nowrap", ci === 0 && cn("md:static sticky left-0 z-10", rowBg))}
                         onClick={cell.column.id === "keywordText" ? () => handleClickKeyword(row.original) : undefined}
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
                     ))}
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
             {keywordTable.getRowModel().rows.length === 0 && (
@@ -856,13 +860,14 @@ export function KeywordsPageV2() {
               <thead className="sticky top-0 z-10">
                 {searchTermTable.getHeaderGroups().map((hg) => (
                   <tr key={hg.id} className="border-b border-border bg-elevated/50">
-                    {hg.headers.map((h) => (
+                    {hg.headers.map((h, hi) => (
                       <th
                         key={h.id}
                         onClick={h.column.getCanSort() ? h.column.getToggleSortingHandler() : undefined}
                         className={cn(
-                          "px-3 py-2.5 text-left text-[10px] uppercase tracking-wider text-muted-foreground font-semibold whitespace-nowrap",
-                          h.column.getCanSort() && "cursor-pointer select-none hover:text-foreground"
+                          "px-2 md:px-3 py-2.5 text-left text-[10px] uppercase tracking-wider text-muted-foreground font-semibold whitespace-nowrap",
+                          h.column.getCanSort() && "cursor-pointer select-none hover:text-foreground",
+                          hi === 0 && "md:static sticky left-0 z-20 bg-elevated/90 md:bg-elevated/50"
                         )}
                         style={{ width: h.getSize() }}
                       >
@@ -876,18 +881,21 @@ export function KeywordsPageV2() {
                 ))}
               </thead>
               <tbody>
-                {searchTermTable.getRowModel().rows.map((row, i) => (
+                {searchTermTable.getRowModel().rows.map((row, i) => {
+                  const rowBg = i % 2 === 0 ? "bg-card" : "bg-elevated/10";
+                  return (
                   <tr
                     key={row.id}
-                    className={cn("border-b border-border/50 hover:bg-elevated/30 transition-colors", i % 2 === 0 ? "bg-card" : "bg-elevated/10")}
+                    className={cn("border-b border-border/50 hover:bg-elevated/30 transition-colors", rowBg)}
                   >
-                    {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="px-3 py-2.5 whitespace-nowrap">
+                    {row.getVisibleCells().map((cell, ci) => (
+                      <td key={cell.id} className={cn("px-2 md:px-3 py-2.5 whitespace-nowrap", ci === 0 && cn("md:static sticky left-0 z-10", rowBg))}>
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
                     ))}
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
             {searchTermTable.getRowModel().rows.length === 0 && (

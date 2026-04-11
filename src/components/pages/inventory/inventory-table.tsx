@@ -108,40 +108,40 @@ function FulfillmentBadge({ type }: { type: string }) {
 function ProductCell({ product }: { product: InventoryProductRow }) {
   const initial = product.title.charAt(0).toUpperCase();
   return (
-    <div className="flex items-center gap-2.5 min-w-[240px]">
+    <div className="flex items-center gap-2 md:gap-2.5 min-w-[200px] md:min-w-[240px] max-w-[260px] md:max-w-none">
       {/* Image or letter fallback */}
       {product.imageUrl ? (
         <img
           src={product.imageUrl}
           alt=""
-          className="h-10 w-10 rounded border border-border object-cover shrink-0"
+          className="h-8 w-8 md:h-10 md:w-10 rounded border border-border object-cover shrink-0"
         />
       ) : (
-        <div className="h-10 w-10 rounded border border-border bg-elevated flex items-center justify-center shrink-0">
-          <span className="text-sm font-semibold text-muted-foreground">
+        <div className="h-8 w-8 md:h-10 md:w-10 rounded border border-border bg-elevated flex items-center justify-center shrink-0">
+          <span className="text-xs md:text-sm font-semibold text-muted-foreground">
             {initial}
           </span>
         </div>
       )}
-      <div className="min-w-0">
-        <p className="text-xs font-medium text-foreground truncate max-w-[200px]">
+      <div className="min-w-0 flex-1">
+        <p className="text-2xs md:text-xs font-medium text-foreground truncate max-w-[160px] md:max-w-[200px]">
           {product.title}
         </p>
-        <div className="flex items-center gap-2 mt-0.5">
-          <span className="text-2xs text-muted-foreground font-mono">
+        <div className="flex items-center gap-1.5 md:gap-2 mt-0.5">
+          <span className="text-[10px] md:text-2xs text-muted-foreground font-mono truncate">
             {product.asin}
           </span>
           <FulfillmentBadge type={product.fulfillment} />
         </div>
-        <div className="flex items-center gap-2 mt-0.5">
-          <span className="text-2xs text-muted-foreground">
+        <div className="flex items-center gap-1.5 md:gap-2 mt-0.5 min-w-0">
+          <span className="text-[10px] md:text-2xs text-muted-foreground truncate max-w-[80px] md:max-w-none">
             FNSKU: {product.fnsku}
           </span>
-          <span className="text-2xs text-muted-foreground">
+          <span className="text-[10px] md:text-2xs text-muted-foreground truncate max-w-[80px] md:max-w-none">
             SKU: {product.sku}
           </span>
         </div>
-        <span className="text-2xs text-muted-foreground">
+        <span className="text-[10px] md:text-2xs text-muted-foreground">
           COGS: {formatCurrency(product.cogs)}
         </span>
       </div>
@@ -290,19 +290,19 @@ export function InventoryTable({ products, onOpenSettings }: Props) {
   }, [sorted]);
 
   const thClass =
-    "px-3 py-2 text-left text-2xs font-medium text-muted-foreground whitespace-nowrap cursor-pointer select-none hover:text-foreground transition";
-  const tdClass = "px-3 py-2 text-xs whitespace-nowrap";
+    "px-2 md:px-3 py-2 text-left text-2xs font-medium text-muted-foreground whitespace-nowrap cursor-pointer select-none hover:text-foreground transition min-w-[60px]";
+  const tdClass = "px-2 md:px-3 py-2 text-2xs md:text-xs whitespace-nowrap min-w-[60px]";
 
   return (
     <div className="rounded-lg border border-border bg-card overflow-hidden">
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-border gap-3">
+      <div className="flex items-center justify-between px-3 md:px-4 py-2 border-b border-border gap-2 md:gap-3">
         <input
           type="text"
           placeholder="Search products..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-64 rounded-md border border-border bg-elevated px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary"
+          className="w-full max-w-[240px] md:w-64 rounded-md border border-border bg-elevated px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary"
         />
         <div className="flex items-center gap-2">
           <span className="text-2xs text-muted-foreground">

@@ -277,11 +277,11 @@ export function PPCPage() {
   }
 
   return (
-    <div className="space-y-6 px-6 py-5">
+    <div className="space-y-4 md:space-y-6 px-3 md:px-6 py-4 md:py-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-foreground">PPC Dashboard</h1>
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <h1 className="text-lg md:text-xl font-bold text-foreground">PPC Dashboard</h1>
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={cn("px-3 py-1.5 text-xs rounded-md border transition-colors", showFilters ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground")}
@@ -350,9 +350,13 @@ export function PPCPage() {
               <thead className="sticky top-0 z-10">
                 {campaignTable.getHeaderGroups().map((hg) => (
                   <tr key={hg.id} className="border-b border-border bg-elevated/50">
-                    {hg.headers.map((h) => (
+                    {hg.headers.map((h, hi) => (
                       <th key={h.id} onClick={h.column.getCanSort() ? h.column.getToggleSortingHandler() : undefined}
-                        className={cn("px-3 py-2.5 text-left text-[10px] uppercase tracking-wider text-muted-foreground font-semibold whitespace-nowrap", h.column.getCanSort() && "cursor-pointer select-none hover:text-foreground")}
+                        className={cn(
+                          "px-2 md:px-3 py-2.5 text-left text-[10px] uppercase tracking-wider text-muted-foreground font-semibold whitespace-nowrap",
+                          h.column.getCanSort() && "cursor-pointer select-none hover:text-foreground",
+                          hi <= 1 && "md:static sticky left-0 z-20 bg-elevated/90 md:bg-elevated/50"
+                        )}
                         style={{ width: h.getSize() }}>
                         <div className="flex items-center gap-1">
                           {flexRender(h.column.columnDef.header, h.getContext())}
@@ -367,13 +371,18 @@ export function PPCPage() {
                 {campaignTable.getRowModel().rows.map((row, i) => {
                   const orig = row.original;
                   const isExp = expandedCampaigns.has(orig.campaignName);
+                  const rowBg = i % 2 === 0 ? "bg-card" : "bg-elevated/10";
                   return (
                     <React.Fragment key={row.id}>
-                      <tr className={cn("border-b border-border/50 hover:bg-elevated/30 transition-colors", i % 2 === 0 ? "bg-card" : "bg-elevated/10")}>
-                        {row.getVisibleCells().map((cell) => (
+                      <tr className={cn("border-b border-border/50 hover:bg-elevated/30 transition-colors", rowBg)}>
+                        {row.getVisibleCells().map((cell, ci) => (
                           <td
                             key={cell.id}
-                            className={cn("px-3 py-2.5 whitespace-nowrap", cell.column.id === "expand" && "cursor-pointer")}
+                            className={cn(
+                              "px-2 md:px-3 py-2.5 whitespace-nowrap",
+                              cell.column.id === "expand" && "cursor-pointer",
+                              ci <= 1 && cn("md:static sticky left-0 z-10", rowBg)
+                            )}
                             onClick={() => {
                               if (cell.column.id === "expand") toggleExpand(orig.campaignName);
                               else if (cell.column.id === "campaignName") setDetailCampaign(orig.campaignName);
@@ -404,9 +413,13 @@ export function PPCPage() {
               <thead className="sticky top-0 z-10">
                 {productTable.getHeaderGroups().map((hg) => (
                   <tr key={hg.id} className="border-b border-border bg-elevated/50">
-                    {hg.headers.map((h) => (
+                    {hg.headers.map((h, hi) => (
                       <th key={h.id} onClick={h.column.getCanSort() ? h.column.getToggleSortingHandler() : undefined}
-                        className={cn("px-3 py-2.5 text-left text-[10px] uppercase tracking-wider text-muted-foreground font-semibold whitespace-nowrap", h.column.getCanSort() && "cursor-pointer select-none hover:text-foreground")}
+                        className={cn(
+                          "px-2 md:px-3 py-2.5 text-left text-[10px] uppercase tracking-wider text-muted-foreground font-semibold whitespace-nowrap",
+                          h.column.getCanSort() && "cursor-pointer select-none hover:text-foreground",
+                          hi === 0 && "md:static sticky left-0 z-20 bg-elevated/90 md:bg-elevated/50"
+                        )}
                         style={{ width: h.getSize() }}>
                         <div className="flex items-center gap-1">
                           {flexRender(h.column.columnDef.header, h.getContext())}
@@ -418,15 +431,18 @@ export function PPCPage() {
                 ))}
               </thead>
               <tbody>
-                {productTable.getRowModel().rows.map((row, i) => (
-                  <tr key={row.id} className={cn("border-b border-border/50 hover:bg-elevated/30 transition-colors", i % 2 === 0 ? "bg-card" : "bg-elevated/10")}>
-                    {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="px-3 py-2.5 whitespace-nowrap">
+                {productTable.getRowModel().rows.map((row, i) => {
+                  const rowBg = i % 2 === 0 ? "bg-card" : "bg-elevated/10";
+                  return (
+                  <tr key={row.id} className={cn("border-b border-border/50 hover:bg-elevated/30 transition-colors", rowBg)}>
+                    {row.getVisibleCells().map((cell, ci) => (
+                      <td key={cell.id} className={cn("px-2 md:px-3 py-2.5 whitespace-nowrap", ci === 0 && cn("md:static sticky left-0 z-10", rowBg))}>
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
                     ))}
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
             {productTable.getRowModel().rows.length === 0 && (

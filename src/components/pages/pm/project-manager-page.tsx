@@ -93,6 +93,15 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
   const [initialized, setInitialized] = useState(false);
   const [showNewTaskInput, setShowNewTaskInput] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  const handleSelectList = useCallback((listId: string) => {
+    setSelectedListId(listId);
+    // Auto-close mobile sidebar after selection
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      setMobileSidebarOpen(false);
+    }
+  }, []);
 
   // Initialize local state from data
   if (data && !initialized) {
@@ -330,25 +339,53 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
 
   return (
     <div className="flex h-full relative">
-      {/* Sidebar */}
-      <PMSidebar
-        spaces={localSpaces}
-        selectedListId={selectedListId}
-        onSelectList={setSelectedListId}
-        onCreateSpace={handleCreateSpace}
-        onCreateList={handleCreateList}
-        onDeleteSpace={handleDeleteSpace}
-        onDeleteList={handleDeleteList}
-        onRenameSpace={handleRenameSpace}
-        onRenameList={handleRenameList}
-      />
+      {/* Mobile backdrop */}
+      {mobileSidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar — overlay on mobile, inline on desktop */}
+      <div
+        className={cn(
+          "md:block md:static md:z-auto",
+          mobileSidebarOpen
+            ? "fixed inset-y-0 left-0 z-50 flex"
+            : "hidden"
+        )}
+      >
+        <PMSidebar
+          spaces={localSpaces}
+          selectedListId={selectedListId}
+          onSelectList={handleSelectList}
+          onCreateSpace={handleCreateSpace}
+          onCreateList={handleCreateList}
+          onDeleteSpace={handleDeleteSpace}
+          onDeleteList={handleDeleteList}
+          onRenameSpace={handleRenameSpace}
+          onRenameList={handleRenameList}
+        />
+      </div>
 
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-          <div className="flex items-center gap-3">
-            <h1 className="text-sm font-semibold text-foreground">
+        <div className="flex items-center justify-between px-3 md:px-4 py-3 border-b border-border gap-2">
+          <div className="flex items-center gap-2 md:gap-3 min-w-0">
+            <button
+              type="button"
+              onClick={() => setMobileSidebarOpen(true)}
+              className="md:hidden flex items-center gap-1 rounded-md border border-border px-2 py-1 text-2xs font-medium text-muted-foreground hover:text-foreground hover:bg-elevated transition flex-shrink-0"
+              title="Show projects"
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3.5 w-3.5">
+                <path d="M2 4h12M2 8h12M2 12h12" />
+              </svg>
+              Projects
+            </button>
+            <h1 className="text-sm font-semibold text-foreground truncate">
               {selectedList ? selectedList.name : "Select a list"}
             </h1>
             {selectedList && (
@@ -357,9 +394,9 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             {/* View switcher */}
-            <div className="flex items-center rounded-md border border-border bg-elevated p-0.5">
+            <div className="hidden md:flex items-center rounded-md border border-border bg-elevated p-0.5">
               <button
                 type="button"
                 onClick={() => setViewMode("board")}
@@ -413,7 +450,7 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
             {/* Filter button */}
             <button
               type="button"
-              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-2xs font-medium text-muted-foreground hover:text-foreground hover:bg-elevated transition"
+              className="hidden md:flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-2xs font-medium text-muted-foreground hover:text-foreground hover:bg-elevated transition"
             >
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3.5 w-3.5">
                 <path d="M2 4h12M4 8h8M6 12h4" />
