@@ -3,16 +3,20 @@
  *
  * Fetches FBA customer return data via Amazon's
  * GET_FBA_FULFILLMENT_CUSTOMER_RETURNS_DATA report, parses the TSV,
- * and upserts DailySale.refundCount.
+ * and upserts DailySale.refundCount as a PROVISIONAL value.
  *
- * This job ONLY writes refundCount (unit counts). Actual dollar amounts
- * come from sync-settlement-refunds, which reads settlement reports
- * with exact refund amounts from Amazon.
+ * This job writes refundCount + estimated refundAmount ONLY when the
+ * existing DailySale row has no settlement data yet (refundCount === 0).
+ * Once sync-settlement-refunds writes authoritative values, this job
+ * will skip those rows (settlement data takes precedence).
  *
- * Why a separate job?
- *   - The return report gives immediate visibility into return counts
- *   - Settlement reports may lag behind (generated every ~2 weeks)
- *   - Having counts immediately lets the dashboard show return rates
+ * Flow:
+ *   - Fresh refunds show up within hours (from the returns report)
+ *   - When settlements arrive, sync-settlement-refunds overwrites with
+ *     exact refundCount and refundAmount
+ *
+ * refundAmount estimation: refundCount × avg selling price (computed
+ * from recent DailySale grossSales/unitsSold per product).
  *
  * Cursor: ISO date string stored in SyncCursor(connectionId, "sync-returns").
  * On first run, defaults to 30 days ago.
@@ -54,18 +58,57 @@ type ReturnNormResult = {
 };
 
 /**
- * Upserts return data into DailySale.
- * Only touches refundCount — does NOT write refundAmount (that comes
- * from sync-settlement-refunds with exact amounts).
- * Does NOT overwrite grossSales/unitsSold/orderCount.
+ * Build a map of productId → average selling price from recent DailySale
+ * records. Used to estimate refundAmount when only the provisional return
+ * count is available.
+ */
+async function loadAvgPriceMap(): Promise<Map<string, number>> {
+  const PRICE_LOOKBACK_DAYS = 60;
+  const since = new Date(Date.now() - PRICE_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+
+  const rows = await prisma.dailySale.groupBy({
+    by: ["productId"],
+    where: {
+      date: { gte: since },
+      unitsSold: { gt: 0 },
+    },
+    _sum: {
+      grossSales: true,
+      unitsSold: true,
+    },
+  });
+
+  const map = new Map<string, number>();
+  for (const r of rows) {
+    const gross = Number(r._sum.grossSales ?? 0);
+    const units = Number(r._sum.unitsSold ?? 0);
+    if (units > 0 && gross > 0) {
+      map.set(r.productId, gross / units);
+    }
+  }
+  return map;
+}
+
+/**
+ * Upserts return data into DailySale as PROVISIONAL values.
+ *
+ * Behavior:
+ *   - If the row does not exist → create with refundCount + estimated refundAmount.
+ *   - If the row exists and existing refundCount === 0 → update with provisional data.
+ *   - If the row exists and existing refundCount > 0 → skip entirely. Settlement
+ *     data is authoritative and must not be overwritten.
+ *
+ * Does NOT touch grossSales/unitsSold/orderCount in either branch.
  */
 async function normalizeReturnRows(
   rows: RawReturnRow[],
-  maps: LookupMaps
+  maps: LookupMaps,
+  priceMap: Map<string, number>
 ): Promise<ReturnNormResult> {
   let written = 0;
   let skippedUnknownAsin = 0;
   let skippedUnknownMarketplace = 0;
+  let skippedSettled = 0;
 
   for (const row of rows) {
     // Resolve productId: try ASIN first, then SKU fallback
@@ -90,7 +133,9 @@ async function normalizeReturnRows(
       continue;
     }
 
-    await prisma.dailySale.upsert({
+    // Check existing refund values — settlement data is authoritative and
+    // must not be overwritten by provisional return-report data.
+    const existing = await prisma.dailySale.findUnique({
       where: {
         productId_marketplaceId_date: {
           productId,
@@ -98,22 +143,55 @@ async function normalizeReturnRows(
           date: row.date,
         },
       },
-      create: {
-        productId,
-        marketplaceId,
-        date: row.date,
-        unitsSold: 0,
-        orderCount: 0,
-        grossSales: 0,
-        refundCount: row.refundCount,
-        refundAmount: 0,
-      },
-      update: {
-        refundCount: row.refundCount,
-      },
+      select: { refundCount: true },
     });
 
+    if (existing && existing.refundCount > 0) {
+      skippedSettled++;
+      continue;
+    }
+
+    const avgPrice = priceMap.get(productId) ?? 0;
+    const estimatedRefundAmount = row.refundCount * avgPrice;
+
+    if (existing) {
+      // Row exists with no settlement data yet — update provisional fields only.
+      await prisma.dailySale.update({
+        where: {
+          productId_marketplaceId_date: {
+            productId,
+            marketplaceId,
+            date: row.date,
+          },
+        },
+        data: {
+          refundCount: row.refundCount,
+          refundAmount: estimatedRefundAmount,
+        },
+      });
+    } else {
+      // No row yet — create with zero sales and provisional refund data.
+      await prisma.dailySale.create({
+        data: {
+          productId,
+          marketplaceId,
+          date: row.date,
+          unitsSold: 0,
+          orderCount: 0,
+          grossSales: 0,
+          refundCount: row.refundCount,
+          refundAmount: estimatedRefundAmount,
+        },
+      });
+    }
+
     written++;
+  }
+
+  if (skippedSettled > 0) {
+    console.log(
+      `[sync-returns] skipped ${skippedSettled} rows already covered by settlement data`
+    );
   }
 
   return { written, skippedUnknownAsin, skippedUnknownMarketplace };
@@ -179,7 +257,8 @@ export async function syncReturnsJob(ctx: JobContext): Promise<JobResult> {
     let totalWritten = 0;
 
     if (parsed.returnRows.length > 0) {
-      const result = await normalizeReturnRows(parsed.returnRows, maps);
+      const priceMap = await loadAvgPriceMap();
+      const result = await normalizeReturnRows(parsed.returnRows, maps, priceMap);
       totalWritten = result.written;
 
       if (result.skippedUnknownAsin > 0) {
