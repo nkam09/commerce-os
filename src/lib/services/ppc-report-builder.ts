@@ -55,10 +55,13 @@ const BODY_FONT: Partial<ExcelJS.Font> = {
   size: FONT_SIZE,
 };
 
-const FMT_CURRENCY = '"$"#,##0.00;("$"#,##0.00);-';
-const FMT_PERCENT = "0.0%;(0.0%);-";
-const FMT_INT = "#,##0;(#,##0);-";
-const FMT_DECIMAL = "#,##0.00;(#,##0.00);-";
+// Simple Excel number formats. ACoS/TACoS/CVR/Margin values are stored as
+// fractions (0.34 = 34%), so Excel's built-in "0.0%" format multiplies them
+// automatically. RoAS is stored as a ratio (3.21x) so we use "0.00".
+const FMT_CURRENCY = '"$"#,##0.00';
+const FMT_PERCENT = "0.0%";
+const FMT_INT = "#,##0";
+const FMT_DECIMAL = "0.00";
 
 // ─── Column definitions ─────────────────────────────────────────────────────
 
@@ -136,6 +139,21 @@ function buildSheet<T>(
 
   for (const r of rows) {
     ws.addRow(r);
+  }
+
+  // ExcelJS's column-level `style.numFmt` is applied only to NEW rows added
+  // after the column definition. For rows added via addRow(object), we also
+  // re-apply the numFmt to each body cell explicitly to guarantee that
+  // percentages and currencies render correctly (the root cause of the
+  // "raw decimal" bug).
+  for (let colIdx = 0; colIdx < cols.length; colIdx++) {
+    const fmt = cols[colIdx].format;
+    if (!fmt) continue;
+    const column = ws.getColumn(colIdx + 1);
+    column.eachCell({ includeEmpty: false }, (cell, rowNum) => {
+      if (rowNum === 1) return; // skip header
+      cell.numFmt = fmt;
+    });
   }
 
   applyHeaderStyle(ws.getRow(1));

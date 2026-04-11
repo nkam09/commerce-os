@@ -135,19 +135,25 @@ export class AdsApiClient {
   private async request<T>(
     method: string,
     path: string,
-    body?: unknown
+    body?: unknown,
+    options: { contentType?: string; accept?: string } = {}
   ): Promise<T> {
     const token = await this.getLwaToken();
     const url = `${this.endpoint}${path}`;
 
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      "Amazon-Advertising-API-ClientId": this.config.clientId,
+      "Amazon-Advertising-API-Scope": this.config.profileId,
+      "Content-Type": options.contentType ?? "application/json",
+    };
+    if (options.accept) {
+      headers.Accept = options.accept;
+    }
+
     const res = await fetch(url, {
       method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Amazon-Advertising-API-ClientId": this.config.clientId,
-        "Amazon-Advertising-API-Scope": this.config.profileId,
-        "Content-Type": "application/json",
-      },
+      headers,
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
 
@@ -158,6 +164,14 @@ export class AdsApiClient {
 
     return res.json() as Promise<T>;
   }
+
+  /**
+   * Amazon Ads V3 reporting requires a specific vendor Content-Type header
+   * when creating async reports. Using plain application/json will be
+   * rejected with a 415/406 error and cryptic message.
+   */
+  private static readonly REPORT_CONTENT_TYPE =
+    "application/vnd.createasyncreportrequest.v3+json";
 
   // ─── Reporting V3 ───────────────────────────────────────────────────────────
 
@@ -205,7 +219,8 @@ export class AdsApiClient {
     const res = await this.request<AdsReportResponse>(
       "POST",
       "/reporting/reports",
-      body
+      body,
+      { contentType: AdsApiClient.REPORT_CONTENT_TYPE }
     );
     return res.reportId;
   }
@@ -219,7 +234,28 @@ export class AdsApiClient {
   async requestSPTargetingReport(params: {
     startDate: string;
     endDate: string;
+    timeUnit?: "DAILY" | "SUMMARY";
   }): Promise<string> {
+    const timeUnit = params.timeUnit ?? "SUMMARY";
+    // "date" column is only valid (and required) for DAILY reports.
+    const columns = [
+      ...(timeUnit === "DAILY" ? ["date"] : []),
+      "campaignName",
+      "campaignId",
+      "adGroupName",
+      "adGroupId",
+      "keywordId",
+      "keyword",
+      "targeting",
+      "keywordType",
+      "keywordBid",
+      "matchType",
+      "impressions",
+      "clicks",
+      "cost",
+      "purchases7d",
+      "sales7d",
+    ];
     const body = {
       name: `SP Targeting Report ${params.startDate} to ${params.endDate}`,
       startDate: params.startDate,
@@ -227,26 +263,9 @@ export class AdsApiClient {
       configuration: {
         adProduct: "SPONSORED_PRODUCTS",
         groupBy: ["targeting"],
-        columns: [
-          "date",
-          "campaignName",
-          "campaignId",
-          "adGroupName",
-          "adGroupId",
-          "keywordId",
-          "keyword",
-          "targeting",
-          "keywordType",
-          "keywordBid",
-          "matchType",
-          "impressions",
-          "clicks",
-          "cost",
-          "purchases7d",
-          "sales7d",
-        ],
+        columns,
         reportTypeId: "spTargeting",
-        timeUnit: "DAILY",
+        timeUnit,
         format: "GZIP_JSON",
       },
     };
@@ -254,9 +273,10 @@ export class AdsApiClient {
     const res = await this.request<AdsReportResponse>(
       "POST",
       "/reporting/reports",
-      body
+      body,
+      { contentType: AdsApiClient.REPORT_CONTENT_TYPE }
     );
-    console.log(`[ads-api] requestSPTargetingReport: ${params.startDate} to ${params.endDate} → reportId=${res.reportId}`);
+    console.log(`[ads-api] requestSPTargetingReport: ${params.startDate} to ${params.endDate} timeUnit=${timeUnit} → reportId=${res.reportId}`);
     return res.reportId;
   }
 
@@ -319,7 +339,8 @@ export class AdsApiClient {
     const res = await this.request<AdsReportResponse>(
       "POST",
       "/reporting/reports",
-      body
+      body,
+      { contentType: AdsApiClient.REPORT_CONTENT_TYPE }
     );
     console.log(
       `[ads-api] requestSPCampaignsReport: ${params.startDate} to ${params.endDate} groupBy=${groupBy.join(",")} → reportId=${res.reportId}`
@@ -336,7 +357,23 @@ export class AdsApiClient {
   async requestSPSearchTermReport(params: {
     startDate: string;
     endDate: string;
+    timeUnit?: "DAILY" | "SUMMARY";
   }): Promise<string> {
+    const timeUnit = params.timeUnit ?? "SUMMARY";
+    const columns = [
+      ...(timeUnit === "DAILY" ? ["date"] : []),
+      "campaignName",
+      "campaignId",
+      "adGroupName",
+      "adGroupId",
+      "searchTerm",
+      "targeting",
+      "impressions",
+      "clicks",
+      "cost",
+      "purchases7d",
+      "sales7d",
+    ];
     const body = {
       name: `SP Search Term Report ${params.startDate} to ${params.endDate}`,
       startDate: params.startDate,
@@ -344,22 +381,9 @@ export class AdsApiClient {
       configuration: {
         adProduct: "SPONSORED_PRODUCTS",
         groupBy: ["searchTerm"],
-        columns: [
-          "date",
-          "campaignName",
-          "campaignId",
-          "adGroupName",
-          "adGroupId",
-          "searchTerm",
-          "targeting",
-          "impressions",
-          "clicks",
-          "cost",
-          "purchases7d",
-          "sales7d",
-        ],
+        columns,
         reportTypeId: "spSearchTerm",
-        timeUnit: "DAILY",
+        timeUnit,
         format: "GZIP_JSON",
       },
     };
@@ -367,9 +391,10 @@ export class AdsApiClient {
     const res = await this.request<AdsReportResponse>(
       "POST",
       "/reporting/reports",
-      body
+      body,
+      { contentType: AdsApiClient.REPORT_CONTENT_TYPE }
     );
-    console.log(`[ads-api] requestSPSearchTermReport: ${params.startDate} to ${params.endDate} → reportId=${res.reportId}`);
+    console.log(`[ads-api] requestSPSearchTermReport: ${params.startDate} to ${params.endDate} timeUnit=${timeUnit} → reportId=${res.reportId}`);
     return res.reportId;
   }
 

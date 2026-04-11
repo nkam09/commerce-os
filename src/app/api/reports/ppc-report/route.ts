@@ -35,7 +35,7 @@ function isValidDate(s: string): boolean {
 
 export async function GET(req: Request) {
   try {
-    await requireUser();
+    const { userId } = await requireUser();
 
     const url = new URL(req.url);
     const now = new Date();
@@ -54,6 +54,7 @@ export async function GET(req: Request) {
     const dataDiveApiKey = process.env.DATA_DIVE_API_KEY;
 
     const data = await generatePPCReportData({
+      userId,
       from,
       to,
       dataDiveApiKey,

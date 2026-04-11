@@ -221,19 +221,26 @@ async function fetchAdsReportSafe(
   request: () => Promise<string>,
   warnings: string[]
 ): Promise<AdsReportRow[]> {
+  console.log(`[ppc-report] >>> ${label}: requesting report...`);
   try {
     const reportId = await request();
+    console.log(`[ppc-report]     ${label}: reportId=${reportId}, polling...`);
     const report = await ads.pollReport(reportId);
+    console.log(
+      `[ppc-report]     ${label}: status=${report.status}, url=${report.url ? "present" : "MISSING"}, size=${report.fileSize ?? "?"}`
+    );
     if (!report.url) {
       warnings.push(`${label}: report completed without download URL`);
       return [];
     }
     const buffer = await ads.downloadReport(report.url);
-    return await ads.parseGzipJsonReport(buffer);
+    const rows = await ads.parseGzipJsonReport(buffer);
+    console.log(`[ppc-report] <<< ${label}: ${rows.length} rows`);
+    return rows;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     warnings.push(`${label} failed: ${msg}`);
-    console.error(`[ppc-report] ${label} failed:`, msg);
+    console.error(`[ppc-report] !!! ${label} failed:`, msg);
     return [];
   }
 }
@@ -241,6 +248,7 @@ async function fetchAdsReportSafe(
 // ─── Main entry ──────────────────────────────────────────────────────────────
 
 export async function generatePPCReportData(params: {
+  userId: string;
   from: string; // YYYY-MM-DD
   to: string;   // YYYY-MM-DD
   dataDiveApiKey?: string;
@@ -248,7 +256,9 @@ export async function generatePPCReportData(params: {
   const warnings: string[] = [];
   const period: PPCReportPeriod = { from: params.from, to: params.to };
 
-  console.log(`[ppc-report] generating for ${params.from} → ${params.to}`);
+  console.log(
+    `[ppc-report] generating userId=${params.userId} ${params.from} → ${params.to}`
+  );
 
   // ── Setup Ads client ──────────────────────────────────────────────────────
   let ads: AdsApiClient | null = null;
@@ -449,41 +459,71 @@ export async function generatePPCReportData(params: {
   const skuPnl: SkuPnlRow[] = [];
   try {
     const products = await prisma.product.findMany({
-      where: { asin: { in: TRACKED_ASINS } },
+      where: { userId: params.userId, asin: { in: TRACKED_ASINS } },
       select: { id: true, asin: true, sku: true },
     });
+    console.log(
+      `[ppc-report] skuPnl: found ${products.length} tracked products for userId=${params.userId}`
+    );
+
+    const productIds = products.map((p) => p.id);
+
+    // Single groupBy query for sales — much faster and surfaces zero-row bugs.
+    const salesAgg = productIds.length
+      ? await prisma.dailySale.groupBy({
+          by: ["productId"],
+          where: {
+            productId: { in: productIds },
+            date: { gte: fromDate, lte: toDate },
+            product: { userId: params.userId },
+          },
+          _sum: {
+            grossSales: true,
+            unitsSold: true,
+            refundCount: true,
+            refundAmount: true,
+          },
+        })
+      : [];
+    console.log(
+      `[ppc-report] skuPnl: salesAgg rows=${salesAgg.length}`,
+      salesAgg.map((s) => ({
+        productId: s.productId,
+        units: toNum(s._sum.unitsSold),
+        gross: toNum(s._sum.grossSales),
+      }))
+    );
+
+    const feesAgg = productIds.length
+      ? await prisma.dailyFee.groupBy({
+          by: ["productId"],
+          where: {
+            productId: { in: productIds },
+            date: { gte: fromDate, lte: toDate },
+            product: { userId: params.userId },
+          },
+          _sum: {
+            referralFee: true,
+            fbaFee: true,
+            storageFee: true,
+            otherFees: true,
+          },
+        })
+      : [];
+
+    const salesByProduct = new Map(salesAgg.map((s) => [s.productId, s]));
+    const feesByProduct = new Map(feesAgg.map((f) => [f.productId, f]));
 
     for (const p of products) {
-      const sales = await prisma.dailySale.aggregate({
-        where: {
-          productId: p.id,
-          date: { gte: fromDate, lte: toDate },
-        },
-        _sum: {
-          grossSales: true,
-          unitsSold: true,
-          refundAmount: true,
-        },
-      });
-      const fees = await prisma.dailyFee.aggregate({
-        where: {
-          productId: p.id,
-          date: { gte: fromDate, lte: toDate },
-        },
-        _sum: {
-          referralFee: true,
-          fbaFee: true,
-          storageFee: true,
-          otherFees: true,
-        },
-      });
+      const s = salesByProduct.get(p.id);
+      const f = feesByProduct.get(p.id);
 
-      const unitsSold = toNum(sales._sum.unitsSold);
-      const grossSales = toNum(sales._sum.grossSales);
-      const refundAmount = toNum(sales._sum.refundAmount);
-      const referralFees = toNum(fees._sum.referralFee);
-      const fbaFees = toNum(fees._sum.fbaFee);
-      const otherFees = toNum(fees._sum.otherFees) + toNum(fees._sum.storageFee);
+      const unitsSold = toNum(s?._sum.unitsSold);
+      const grossSales = toNum(s?._sum.grossSales);
+      const refundAmount = toNum(s?._sum.refundAmount);
+      const referralFees = toNum(f?._sum.referralFee);
+      const fbaFees = toNum(f?._sum.fbaFee);
+      const otherFees = toNum(f?._sum.otherFees) + toNum(f?._sum.storageFee);
 
       const cogsPer = COGS_BY_ASIN[p.asin ?? ""] ?? 0;
       const cogs = cogsPer * unitsSold;
