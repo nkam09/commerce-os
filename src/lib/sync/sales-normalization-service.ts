@@ -77,6 +77,31 @@ export async function normalizeSaleRows(
     const marketplaceId = maps.codeToMarketplaceId.get(row.marketplaceCode);
     if (!marketplaceId) { skippedUnknownMarketplace++; continue; }
 
+    // Boundary-date protection: the sync-orders 3-day lookback re-fetches
+    // the earliest day in the window, which can return a partial snapshot
+    // of that day's orders. If the existing row already has MORE units than
+    // the report row (because a prior full-day sync already wrote it), we
+    // must NOT overwrite it with the smaller count. Only update when the
+    // report has equal-or-greater units (i.e. new orders have come in).
+    const existing = await prisma.dailySale.findUnique({
+      where: {
+        productId_marketplaceId_date: {
+          productId,
+          marketplaceId,
+          date: row.date,
+        },
+      },
+      select: { unitsSold: true },
+    });
+
+    if (existing && existing.unitsSold > row.unitsSold) {
+      console.log(
+        `[sales-norm] skipping ${row.date.toISOString().slice(0, 10)} ${row.asin}: ` +
+          `existing ${existing.unitsSold} units > report ${row.unitsSold} units`
+      );
+      continue;
+    }
+
     await prisma.dailySale.upsert({
       where: {
         productId_marketplaceId_date: {
