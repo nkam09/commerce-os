@@ -260,6 +260,73 @@ export class AdsApiClient {
     return res.reportId;
   }
 
+  // ─── Campaign (spCampaigns) Report ──────────────────────────────────────────
+
+  /**
+   * Request a Sponsored Products campaign-level report (spCampaigns).
+   * Used by the PPC Report Generator for campaign performance and
+   * placement breakdown.
+   *
+   * groupBy defaults to ["campaign"]. Pass ["campaign", "campaignPlacement"]
+   * for the placement breakdown tab.
+   *
+   * Returns { reportId } — use pollReport + downloadReport + parseGzipJsonReport
+   * to fetch the rows.
+   */
+  async requestSPCampaignsReport(params: {
+    profileId: string;
+    startDate: string;
+    endDate: string;
+    groupBy?: string[];
+  }): Promise<{ reportId: string }> {
+    const groupBy = params.groupBy ?? ["campaign"];
+
+    const columns = [
+      "campaignName",
+      "campaignId",
+      "campaignStatus",
+      "campaignBudgetAmount",
+      "campaignBudgetType",
+      "impressions",
+      "clicks",
+      "cost",
+      "purchases7d",
+      "sales7d",
+      "unitsSold7d",
+      "clickThroughRate",
+      "costPerClick",
+      "acos7d",
+      "roas7d",
+    ];
+    if (groupBy.includes("campaignPlacement")) {
+      columns.push("campaignPlacement");
+    }
+
+    const body = {
+      name: "SP Campaign Report",
+      startDate: params.startDate,
+      endDate: params.endDate,
+      configuration: {
+        adProduct: "SPONSORED_PRODUCTS",
+        groupBy,
+        columns,
+        reportTypeId: "spCampaigns",
+        timeUnit: "SUMMARY",
+        format: "GZIP_JSON",
+      },
+    };
+
+    const res = await this.request<AdsReportResponse>(
+      "POST",
+      "/reporting/reports",
+      body
+    );
+    console.log(
+      `[ads-api] requestSPCampaignsReport: ${params.startDate} to ${params.endDate} groupBy=${groupBy.join(",")} → reportId=${res.reportId}`
+    );
+    return { reportId: res.reportId };
+  }
+
   // ─── Search Term Report ─────────────────────────────────────────────────────
 
   /**
