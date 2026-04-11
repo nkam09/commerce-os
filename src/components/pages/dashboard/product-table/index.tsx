@@ -165,7 +165,7 @@ export function ProductPerformanceTable({
   return (
     <div
       className={cn(
-        "bg-card rounded-lg border border-border",
+        "bg-card rounded-lg border border-border overflow-visible",
         className
       )}
     >

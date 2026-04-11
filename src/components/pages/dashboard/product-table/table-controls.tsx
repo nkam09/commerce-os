@@ -138,7 +138,7 @@ export function GroupByDropdown({
         <ChevronDownIcon />
       </button>
       {open && (
-        <div className="fixed right-[100px] top-[200px] z-[9999] min-w-[140px] rounded-lg border border-border bg-card py-1 shadow-xl animate-fade-in">
+        <div className="absolute right-0 top-[calc(100%+4px)] z-[9999] min-w-[140px] rounded-lg border border-border bg-card py-1 shadow-xl animate-fade-in">
           {GROUP_BY_OPTIONS.map((opt) => (
             <button
               key={opt.value}
@@ -204,7 +204,7 @@ export function ColumnsDropdown({
         Columns
       </button>
       {open && (
-        <div className="fixed right-[100px] top-[200px] z-[9999] w-60 rounded-lg border border-border bg-card p-3 shadow-xl animate-fade-in max-h-[400px] overflow-y-auto">
+        <div className="absolute right-0 top-[calc(100%+4px)] z-[9999] w-60 rounded-lg border border-border bg-card p-3 shadow-xl animate-fade-in max-h-[400px] overflow-y-auto">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-foreground">Toggle Columns</span>
             <button
@@ -341,7 +341,7 @@ export function ExportDropdown({ data }: { data: ProductRow[] }) {
         <ChevronDownIcon />
       </button>
       {open && (
-        <div className="fixed right-[100px] top-[200px] z-[9999] min-w-[220px] rounded-lg border border-border bg-card py-1 shadow-xl animate-fade-in">
+        <div className="absolute right-0 top-[calc(100%+4px)] z-[9999] min-w-[220px] rounded-lg border border-border bg-card py-1 shadow-xl animate-fade-in">
           <button
             type="button"
             onClick={() => handleExport("daily")}
