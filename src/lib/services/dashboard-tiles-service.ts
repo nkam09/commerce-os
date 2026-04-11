@@ -345,16 +345,13 @@ async function queryPeriodMetrics(
       },
       select: { name: true, amount: true, frequency: true },
     });
-    const windowDays = Math.max(1, daysBetween(period.from, period.to) + 1);
+    // No proration: Sellerboard charges the full recurring amount as a lump
+    // sum for any period that overlaps the expense's active window. So MTD
+    // day 1 and MTD day 30 both show the same $X monthly charge.
     for (const exp of expenses) {
-      const amt = toNum(exp.amount);
-      let periodAmt = amt;
-      if (exp.frequency === "MONTHLY") periodAmt = round(amt * windowDays / 30);
-      else if (exp.frequency === "WEEKLY") periodAmt = round(amt * windowDays / 7);
-      else if (exp.frequency === "QUARTERLY") periodAmt = round(amt * windowDays / 90);
-      else if (exp.frequency === "ANNUALLY") periodAmt = round(amt * windowDays / 365);
+      const periodAmt = round(toNum(exp.amount));
       indirectExpenseTotal += periodAmt;
-      indirectExpenseItems.push({ name: exp.name, amount: round(periodAmt) });
+      indirectExpenseItems.push({ name: exp.name, amount: periodAmt });
     }
     indirectExpenseTotal = round(indirectExpenseTotal);
   } catch { /* expense table may not exist yet */ }
