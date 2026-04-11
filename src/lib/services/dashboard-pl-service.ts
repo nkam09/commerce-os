@@ -45,6 +45,25 @@ export type PLColumnMetrics = {
   refundPct: number | null;
   margin: number | null;
   roi: number | null;
+
+  // Sales breakdown
+  organicSales: number;
+  sponsoredSales: number;
+  netRevenue: number;
+
+  // Refund cost breakdown
+  refundedAmount: number;
+  refundCommission: number;
+  refundedReferralFee: number;
+
+  // Amazon fees breakdown
+  referralFees: number;
+  fbaFees: number;
+  fbaStorageFees: number;
+  awdStorageFees: number;
+  returnProcessing: number;
+  otherFees: number;
+  reversalReimbursement: number;
 };
 
 export type PLColumn = {
@@ -260,7 +279,10 @@ function toWeekLabel(mondayStr: string): string {
 
 type RawBucket = {
   grossSales: number;
-  refunds: number;
+  refunds: number;                 // daily_sales.refundAmount
+  refundCommission: number;        // daily_sales.refundCommission
+  refundedReferralFee: number;     // daily_sales.refundedReferralFee
+  promoAmount: number;             // daily_sales.promoAmount
   unitsSold: number;
   refundCount: number;
   referralFees: number;
@@ -277,26 +299,40 @@ type RawBucket = {
 
 function emptyBucket(): RawBucket {
   return {
-    grossSales: 0, refunds: 0, unitsSold: 0, refundCount: 0,
+    grossSales: 0, refunds: 0, refundCommission: 0, refundedReferralFee: 0, promoAmount: 0,
+    unitsSold: 0, refundCount: 0,
     referralFees: 0, fbaFees: 0, storageFees: 0, awdStorageFees: 0, returnFees: 0, otherFees: 0, reimbursement: 0,
     adSpend: 0, adSales: 0, cogs: 0,
   };
 }
 
 function bucketToMetrics(b: RawBucket, dailyIndirectExpenses: number, days: number): PLColumnMetrics {
-  const amazonFees = round(b.referralFees + b.fbaFees + b.storageFees + b.awdStorageFees + b.returnFees + b.otherFees - b.reimbursement);
-  const grossProfit = round(b.grossSales - b.refunds - amazonFees - b.cogs - b.adSpend);
+  // Amazon fees total = referral + fba + storage + awd + return + other - reimbursement
+  const amazonFees = round(
+    b.referralFees + b.fbaFees + b.storageFees + b.awdStorageFees +
+    b.returnFees + b.otherFees - b.reimbursement
+  );
+
+  // Refund cost = refunded principal + refund commission - refunded referral fee credit
+  const refundCost = round(b.refunds + b.refundCommission - b.refundedReferralFee);
+
+  const grossProfit = round(b.grossSales - refundCost - amazonFees - b.cogs - b.adSpend);
   const indirectExpenses = round(dailyIndirectExpenses * days);
   const netProfit = round(grossProfit - indirectExpenses);
   const estimatedPayout = round(b.grossSales - amazonFees - b.adSpend);
+
+  // Sales breakdown
+  const sponsoredSales = round(b.adSales);
+  const organicSales = round(b.grossSales - b.adSales);
+  const netRevenue = round(b.grossSales - b.refunds - b.promoAmount);
 
   return {
     sales: round(b.grossSales),
     units: b.unitsSold,
     refundCount: b.refundCount,
-    promo: 0,
+    promo: round(b.promoAmount),
     advertisingCost: round(b.adSpend),
-    refundCost: round(b.refunds),
+    refundCost,
     amazonFees,
     costOfGoods: round(b.cogs),
     grossProfit,
@@ -305,9 +341,28 @@ function bucketToMetrics(b: RawBucket, dailyIndirectExpenses: number, days: numb
     estimatedPayout,
     realAcos: b.adSales > 0 ? round(safeDiv(b.adSpend, b.adSales) * 100, 1) : null,
     tacos: b.grossSales > 0 ? round(safeDiv(b.adSpend, b.grossSales) * 100, 1) : null,
-    refundPct: b.grossSales > 0 ? round(safeDiv(b.refunds, b.grossSales) * 100, 1) : null,
+    refundPct: b.grossSales > 0 ? round(safeDiv(refundCost, b.grossSales) * 100, 1) : null,
     margin: b.grossSales > 0 ? round(safeDiv(netProfit, b.grossSales) * 100, 1) : null,
     roi: b.cogs > 0 ? round(safeDiv(netProfit, b.cogs) * 100, 1) : null,
+
+    // Sales breakdown
+    organicSales,
+    sponsoredSales,
+    netRevenue,
+
+    // Refund cost breakdown
+    refundedAmount: round(b.refunds),
+    refundCommission: round(b.refundCommission),
+    refundedReferralFee: round(b.refundedReferralFee),
+
+    // Amazon fees breakdown
+    referralFees: round(b.referralFees),
+    fbaFees: round(b.fbaFees),
+    fbaStorageFees: round(b.storageFees),
+    awdStorageFees: round(b.awdStorageFees),
+    returnProcessing: round(b.returnFees),
+    otherFees: round(b.otherFees),
+    reversalReimbursement: round(b.reimbursement),
   };
 }
 
@@ -355,7 +410,15 @@ export async function getPLColumnsData(
     prisma.dailySale.groupBy({
       by: ["productId", "date"],
       where: { productId: { in: productIds }, date: { gte: start, lte: today } },
-      _sum: { grossSales: true, unitsSold: true, refundAmount: true, refundCount: true },
+      _sum: {
+        grossSales: true,
+        unitsSold: true,
+        refundAmount: true,
+        refundCount: true,
+        refundCommission: true,
+        refundedReferralFee: true,
+        promoAmount: true,
+      },
     }),
     prisma.dailyFee.groupBy({
       by: ["productId", "date"],
@@ -403,6 +466,9 @@ export async function getPLColumnsData(
     const b = getBucket(key);
     b.grossSales += toNum(row._sum.grossSales);
     b.refunds += toNum(row._sum.refundAmount);
+    b.refundCommission += toNum(row._sum.refundCommission);
+    b.refundedReferralFee += toNum(row._sum.refundedReferralFee);
+    b.promoAmount += toNum(row._sum.promoAmount);
     b.unitsSold += row._sum.unitsSold ?? 0;
     b.refundCount += row._sum.refundCount ?? 0;
     b.cogs += (cogsMap.get(row.productId) ?? 0) * (row._sum.unitsSold ?? 0);

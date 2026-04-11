@@ -35,56 +35,58 @@ interface RowDef {
 const ROW_DEFS: RowDef[] = [
   {
     id: "sales", label: "Sales", metricKey: "sales", format: "currency", indent: 0,
+    children: [
+      { id: "organicSales", label: "Organic Sales", metricKey: "organicSales", format: "currency", indent: 1 },
+      { id: "sponsoredSales", label: "Sponsored Sales", metricKey: "sponsoredSales", format: "currency", indent: 1 },
+    ],
   },
-  {
-    id: "units", label: "Units", metricKey: "units", format: "number", indent: 0,
-  },
-  {
-    id: "refundCount", label: "Refunds", metricKey: "refundCount", format: "number", indent: 0,
-  },
-  {
-    id: "promo", label: "Promo", metricKey: "promo", format: "currency", indent: 0,
-  },
+  { id: "units", label: "Units", metricKey: "units", format: "number", indent: 0 },
+  { id: "refundCount", label: "Refunds", metricKey: "refundCount", format: "number", indent: 0 },
+  { id: "promo", label: "Promo", metricKey: "promo", format: "currency", indent: 0 },
   {
     id: "advertisingCost", label: "Advertising Cost", metricKey: "advertisingCost", format: "currency", indent: 0, invertColor: true,
   },
   {
     id: "refundCost", label: "Refund Cost", metricKey: "refundCost", format: "currency", indent: 0, invertColor: true,
+    children: [
+      { id: "refundedAmount", label: "Refunded Amount", metricKey: "refundedAmount", format: "currency", indent: 1, invertColor: true },
+      { id: "refundCommission", label: "Refund Commission", metricKey: "refundCommission", format: "currency", indent: 1, invertColor: true },
+      { id: "refundedReferralFee", label: "Refunded Referral Fee", metricKey: "refundedReferralFee", format: "currency", indent: 1 },
+    ],
   },
   {
     id: "amazonFees", label: "Amazon Fees", metricKey: "amazonFees", format: "currency", indent: 0, invertColor: true,
+    children: [
+      { id: "referralFees", label: "Referral Fees", metricKey: "referralFees", format: "currency", indent: 1, invertColor: true },
+      { id: "fbaFees", label: "FBA Fees", metricKey: "fbaFees", format: "currency", indent: 1, invertColor: true },
+      { id: "fbaStorageFees", label: "FBA Storage Fees", metricKey: "fbaStorageFees", format: "currency", indent: 1, invertColor: true },
+      { id: "awdStorageFees", label: "AWD Storage Fees", metricKey: "awdStorageFees", format: "currency", indent: 1, invertColor: true },
+      { id: "returnProcessing", label: "Return Processing", metricKey: "returnProcessing", format: "currency", indent: 1, invertColor: true },
+      { id: "otherFees", label: "Other Fees", metricKey: "otherFees", format: "currency", indent: 1, invertColor: true },
+      { id: "reversalReimbursement", label: "Reversal Reimbursement", metricKey: "reversalReimbursement", format: "currency", indent: 1 },
+    ],
   },
-  {
-    id: "costOfGoods", label: "Cost of Goods", metricKey: "costOfGoods", format: "currency", indent: 0, invertColor: true,
-  },
-  {
-    id: "grossProfit", label: "Gross Profit", metricKey: "grossProfit", format: "currency", indent: 0, isBold: true, isProfit: true,
-  },
-  {
-    id: "indirectExpenses", label: "Indirect Expenses", metricKey: "indirectExpenses", format: "currency", indent: 0, invertColor: true,
-  },
-  {
-    id: "netProfit", label: "Net Profit", metricKey: "netProfit", format: "currency", indent: 0, isBold: true, isProfit: true,
-  },
-  {
-    id: "estimatedPayout", label: "Est. Payout", metricKey: "estimatedPayout", format: "currency", indent: 0,
-  },
-  {
-    id: "realAcos", label: "Real ACOS", metricKey: "realAcos", format: "pct", indent: 0, invertColor: true,
-  },
-  {
-    id: "tacos", label: "TACOS", metricKey: "tacos", format: "pct", indent: 0, invertColor: true,
-  },
-  {
-    id: "refundPct", label: "% Refunds", metricKey: "refundPct", format: "pct", indent: 0, invertColor: true,
-  },
-  {
-    id: "margin", label: "Margin", metricKey: "margin", format: "pct", indent: 0,
-  },
-  {
-    id: "roi", label: "ROI", metricKey: "roi", format: "pct", indent: 0,
-  },
+  { id: "costOfGoods", label: "Cost of Goods", metricKey: "costOfGoods", format: "currency", indent: 0, invertColor: true },
+  { id: "grossProfit", label: "Gross Profit", metricKey: "grossProfit", format: "currency", indent: 0, isBold: true, isProfit: true },
+  { id: "indirectExpenses", label: "Indirect Expenses", metricKey: "indirectExpenses", format: "currency", indent: 0, invertColor: true },
+  { id: "netProfit", label: "Net Profit", metricKey: "netProfit", format: "currency", indent: 0, isBold: true, isProfit: true },
+  { id: "estimatedPayout", label: "Est. Payout", metricKey: "estimatedPayout", format: "currency", indent: 0 },
+  { id: "realAcos", label: "Real ACOS", metricKey: "realAcos", format: "pct", indent: 0, invertColor: true },
+  { id: "tacos", label: "TACOS", metricKey: "tacos", format: "pct", indent: 0, invertColor: true },
+  { id: "refundPct", label: "% Refunds", metricKey: "refundPct", format: "pct", indent: 0, invertColor: true },
+  { id: "margin", label: "Margin", metricKey: "margin", format: "pct", indent: 0 },
+  { id: "roi", label: "ROI", metricKey: "roi", format: "pct", indent: 0 },
 ];
+
+// Flatten parent + children in document order (parents always included, children follow).
+function flattenRowDefs(defs: RowDef[]): RowDef[] {
+  const out: RowDef[] = [];
+  for (const d of defs) {
+    out.push(d);
+    if (d.children) out.push(...d.children);
+  }
+  return out;
+}
 
 // ─── Formatting ────────────────────────────────────────────────────────────
 
@@ -187,14 +189,17 @@ function downloadCsv(csvContent: string, filename: string): void {
 }
 
 function buildPLCsv(columns: PLColumn[]): string {
-  // Transposed: rows are metrics, columns are time periods
+  // Transposed: rows are metrics, columns are time periods.
+  // Includes every parent AND its children (child labels prefixed with 4 spaces).
   const header = ["Metric", ...columns.map((c) => c.label)];
-  const rows = ROW_DEFS.map((row) => {
+  const flatRows = flattenRowDefs(ROW_DEFS);
+  const rows = flatRows.map((row) => {
+    const label = row.indent > 0 ? "    " + row.label : row.label;
     const values = columns.map((col) => {
       const v = col.metrics[row.metricKey];
       return fmtCell(v, row.format);
     });
-    return [row.label, ...values];
+    return [label, ...values];
   });
   return [header, ...rows]
     .map((r) => r.map(escapeCsvField).join(","))
@@ -375,12 +380,33 @@ export function PLView() {
 // ─── P&L Grid ──────────────────────────────────────────────────────────────
 
 function PLGrid({ columns, heatmapEnabled }: { columns: PLColumn[]; heatmapEnabled: boolean }) {
-  const [expandedRows] = useState<Set<string>>(new Set());
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
-  // For heatmap: precompute value ranges per row
+  const toggleRow = useCallback((id: string) => {
+    setExpandedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // Build the visible row list by walking ROW_DEFS and inlining children of expanded parents
+  const visibleRows = useMemo(() => {
+    const out: RowDef[] = [];
+    for (const row of ROW_DEFS) {
+      out.push(row);
+      if (row.children && expandedRows.has(row.id)) {
+        out.push(...row.children);
+      }
+    }
+    return out;
+  }, [expandedRows]);
+
+  // For heatmap: precompute value ranges per row (every defined row including children)
   const heatmapRanges = useMemo(() => {
     const ranges: Record<string, number[]> = {};
-    for (const row of ROW_DEFS) {
+    for (const row of flattenRowDefs(ROW_DEFS)) {
       ranges[row.id] = columns.map((col) => {
         const v = col.metrics[row.metricKey];
         return typeof v === "number" ? v : 0;
@@ -409,23 +435,46 @@ function PLGrid({ columns, heatmapEnabled }: { columns: PLColumn[]; heatmapEnabl
             </tr>
           </thead>
           <tbody>
-            {ROW_DEFS.map((row) => {
+            {visibleRows.map((row) => {
               const values = columns.map((col) => col.metrics[row.metricKey]);
+              const hasChildren = !!row.children && row.children.length > 0;
+              const isExpanded = expandedRows.has(row.id);
+              const isChild = row.indent > 0;
               return (
                 <tr
                   key={row.id}
                   className={cn(
                     "border-b border-border/50 hover:bg-elevated/30 transition-colors",
                     row.isBold && "bg-elevated/20",
+                    isChild && "bg-elevated/10",
                   )}
                 >
                   <td
                     className={cn(
                       "sticky left-0 z-10 bg-card px-2.5 md:px-4 py-1.5 md:py-2 whitespace-nowrap",
                       row.isBold ? "font-bold text-foreground" : "text-muted-foreground",
+                      isChild && "text-muted-foreground/80 italic",
                     )}
-                    style={{ paddingLeft: `${10 + row.indent * 12}px` }}
+                    style={{ paddingLeft: `${10 + row.indent * 16}px` }}
                   >
+                    {hasChildren && (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        aria-label={isExpanded ? "Collapse" : "Expand"}
+                        className="cursor-pointer mr-1 text-muted-foreground select-none inline-block w-3"
+                        onClick={() => toggleRow(row.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            toggleRow(row.id);
+                          }
+                        }}
+                      >
+                        {isExpanded ? "▼" : "▶"}
+                      </span>
+                    )}
+                    {!hasChildren && !isChild && <span className="inline-block w-3 mr-1" />}
                     {row.label}
                   </td>
                   {values.map((val, i) => {
@@ -437,6 +486,7 @@ function PLGrid({ columns, heatmapEnabled }: { columns: PLColumn[]; heatmapEnabl
                         className={cn(
                           "text-right px-2 md:px-4 py-1.5 md:py-2 tabular-nums whitespace-nowrap",
                           row.isBold ? "font-bold" : "",
+                          isChild && "text-muted-foreground/80",
                           row.isProfit && num > 0 && "text-green-500",
                           row.isProfit && num < 0 && "text-red-500",
                           !row.isProfit && row.invertColor && num > 0 && "text-red-400/80",
