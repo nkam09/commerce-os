@@ -810,7 +810,7 @@ export function KeywordsPageV2() {
                         className={cn(
                           "px-2 md:px-3 py-2.5 text-left text-[10px] uppercase tracking-wider text-muted-foreground font-semibold whitespace-nowrap",
                           h.column.getCanSort() && "cursor-pointer select-none hover:text-foreground",
-                          hi === 0 && "md:static sticky left-0 z-20 bg-elevated/90 md:bg-elevated/50"
+                          hi === 0 && "md:static sticky left-0 z-20 bg-elevated md:bg-elevated/50 border-r border-border md:border-r-0"
                         )}
                         style={{ width: h.getSize() }}
                       >
@@ -834,7 +834,7 @@ export function KeywordsPageV2() {
                     {row.getVisibleCells().map((cell, ci) => (
                       <td
                         key={cell.id}
-                        className={cn("px-2 md:px-3 py-2.5 whitespace-nowrap", ci === 0 && cn("md:static sticky left-0 z-10", rowBg))}
+                        className={cn("px-2 md:px-3 py-2.5 whitespace-nowrap", ci === 0 && "md:static sticky left-0 z-10 bg-card md:bg-transparent border-r border-border md:border-r-0")}
                         onClick={cell.column.id === "keywordText" ? () => handleClickKeyword(row.original) : undefined}
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -867,7 +867,7 @@ export function KeywordsPageV2() {
                         className={cn(
                           "px-2 md:px-3 py-2.5 text-left text-[10px] uppercase tracking-wider text-muted-foreground font-semibold whitespace-nowrap",
                           h.column.getCanSort() && "cursor-pointer select-none hover:text-foreground",
-                          hi === 0 && "md:static sticky left-0 z-20 bg-elevated/90 md:bg-elevated/50"
+                          hi === 0 && "md:static sticky left-0 z-20 bg-elevated md:bg-elevated/50 border-r border-border md:border-r-0"
                         )}
                         style={{ width: h.getSize() }}
                       >
@@ -889,7 +889,7 @@ export function KeywordsPageV2() {
                     className={cn("border-b border-border/50 hover:bg-elevated/30 transition-colors", rowBg)}
                   >
                     {row.getVisibleCells().map((cell, ci) => (
-                      <td key={cell.id} className={cn("px-2 md:px-3 py-2.5 whitespace-nowrap", ci === 0 && cn("md:static sticky left-0 z-10", rowBg))}>
+                      <td key={cell.id} className={cn("px-2 md:px-3 py-2.5 whitespace-nowrap", ci === 0 && "md:static sticky left-0 z-10 bg-card md:bg-transparent border-r border-border md:border-r-0")}>
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
                     ))}

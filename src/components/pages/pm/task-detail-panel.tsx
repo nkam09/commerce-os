@@ -199,14 +199,14 @@ export function TaskDetailPanel({ task, onClose, onUpdate, onDelete }: TaskDetai
       {/* Panel */}
       <div
         className={cn(
-          "fixed right-0 top-0 h-full w-[500px] bg-card border-l border-border shadow-xl overflow-y-auto z-50 transition-transform duration-200",
+          "fixed right-0 top-0 h-full w-full md:w-[500px] bg-card border-l border-border shadow-xl overflow-y-auto z-50 transition-transform duration-200",
           isVisible ? "translate-x-0" : "translate-x-full"
         )}
       >
         {task && (
           <div className="flex flex-col h-full">
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+            <div className="flex items-center justify-between px-3 md:px-4 py-3 border-b border-border">
               <div className="flex items-center gap-2">
                 {task.aiGenerated && (
                   <span className="inline-flex items-center gap-0.5 rounded-full bg-purple-500/20 text-purple-400 px-1.5 py-0.5 text-2xs font-medium">
@@ -264,7 +264,7 @@ export function TaskDetailPanel({ task, onClose, onUpdate, onDelete }: TaskDetai
             </div>
 
             {/* Body */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-5">
+            <div className="flex-1 overflow-y-auto px-3 md:px-6 py-4 space-y-5">
               {/* Title */}
               {editingTitle ? (
                 <input
@@ -301,7 +301,7 @@ export function TaskDetailPanel({ task, onClose, onUpdate, onDelete }: TaskDetai
               </div>
 
               {/* Status + Priority row */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className="text-2xs font-medium text-muted-foreground uppercase tracking-wider mb-1 block">
                     Status
@@ -339,7 +339,7 @@ export function TaskDetailPanel({ task, onClose, onUpdate, onDelete }: TaskDetai
               </div>
 
               {/* Dates */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className="text-2xs font-medium text-muted-foreground uppercase tracking-wider mb-1 block">
                     Due Date
@@ -476,7 +476,7 @@ export function TaskDetailPanel({ task, onClose, onUpdate, onDelete }: TaskDetai
               </div>
 
               {/* References */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className="text-2xs font-medium text-muted-foreground uppercase tracking-wider mb-1 block">
                     ASIN Reference

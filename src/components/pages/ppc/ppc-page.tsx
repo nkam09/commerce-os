@@ -355,7 +355,8 @@ export function PPCPage() {
                         className={cn(
                           "px-2 md:px-3 py-2.5 text-left text-[10px] uppercase tracking-wider text-muted-foreground font-semibold whitespace-nowrap",
                           h.column.getCanSort() && "cursor-pointer select-none hover:text-foreground",
-                          hi <= 1 && "md:static sticky left-0 z-20 bg-elevated/90 md:bg-elevated/50"
+                          hi <= 1 && "md:static sticky left-0 z-20 bg-elevated md:bg-elevated/50",
+                          hi === 1 && "border-r border-border md:border-r-0"
                         )}
                         style={{ width: h.getSize() }}>
                         <div className="flex items-center gap-1">
@@ -381,7 +382,8 @@ export function PPCPage() {
                             className={cn(
                               "px-2 md:px-3 py-2.5 whitespace-nowrap",
                               cell.column.id === "expand" && "cursor-pointer",
-                              ci <= 1 && cn("md:static sticky left-0 z-10", rowBg)
+                              ci <= 1 && "md:static sticky left-0 z-10 bg-card md:bg-transparent",
+                              ci === 1 && "border-r border-border md:border-r-0"
                             )}
                             onClick={() => {
                               if (cell.column.id === "expand") toggleExpand(orig.campaignName);
@@ -418,7 +420,7 @@ export function PPCPage() {
                         className={cn(
                           "px-2 md:px-3 py-2.5 text-left text-[10px] uppercase tracking-wider text-muted-foreground font-semibold whitespace-nowrap",
                           h.column.getCanSort() && "cursor-pointer select-none hover:text-foreground",
-                          hi === 0 && "md:static sticky left-0 z-20 bg-elevated/90 md:bg-elevated/50"
+                          hi === 0 && "md:static sticky left-0 z-20 bg-elevated md:bg-elevated/50 border-r border-border md:border-r-0"
                         )}
                         style={{ width: h.getSize() }}>
                         <div className="flex items-center gap-1">
@@ -436,7 +438,7 @@ export function PPCPage() {
                   return (
                   <tr key={row.id} className={cn("border-b border-border/50 hover:bg-elevated/30 transition-colors", rowBg)}>
                     {row.getVisibleCells().map((cell, ci) => (
-                      <td key={cell.id} className={cn("px-2 md:px-3 py-2.5 whitespace-nowrap", ci === 0 && cn("md:static sticky left-0 z-10", rowBg))}>
+                      <td key={cell.id} className={cn("px-2 md:px-3 py-2.5 whitespace-nowrap", ci === 0 && "md:static sticky left-0 z-10 bg-card md:bg-transparent border-r border-border md:border-r-0")}>
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
                     ))}
