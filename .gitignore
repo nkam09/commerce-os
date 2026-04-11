@@ -37,3 +37,5 @@ clear-*.js
 
 # worktrees
 .claude/
+
+exports/
