@@ -301,29 +301,27 @@ export class AdsApiClient {
   }): Promise<{ reportId: string }> {
     const groupBy = params.groupBy ?? ["campaign"];
 
+    // Minimal, guaranteed-supported column set. Optional columns that are
+    // known to cause silent 4xx failures on some account types
+    // (campaignStatus, campaignBudgetAmount, campaignBudgetType, acos7d,
+    // roas7d, clickThroughRate, costPerClick, unitsSold7d) have been
+    // removed. Re-introduce them one at a time only after confirming they
+    // work live.
     const columns = [
       "campaignName",
       "campaignId",
-      "campaignStatus",
-      "campaignBudgetAmount",
-      "campaignBudgetType",
       "impressions",
       "clicks",
       "cost",
       "purchases7d",
       "sales7d",
-      "unitsSold7d",
-      "clickThroughRate",
-      "costPerClick",
-      "acos7d",
-      "roas7d",
     ];
     if (groupBy.includes("campaignPlacement")) {
       columns.push("campaignPlacement");
     }
 
     const body = {
-      name: "SP Campaign Report",
+      name: `SP Campaign Report ${params.startDate} to ${params.endDate}`,
       startDate: params.startDate,
       endDate: params.endDate,
       configuration: {
@@ -335,6 +333,10 @@ export class AdsApiClient {
         format: "GZIP_JSON",
       },
     };
+
+    console.log(
+      `[ads-api] requestSPCampaignsReport body: ${JSON.stringify(body)}`
+    );
 
     const res = await this.request<AdsReportResponse>(
       "POST",

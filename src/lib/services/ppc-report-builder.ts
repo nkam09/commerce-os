@@ -141,19 +141,35 @@ function buildSheet<T>(
     ws.addRow(r);
   }
 
-  // ExcelJS's column-level `style.numFmt` is applied only to NEW rows added
-  // after the column definition. For rows added via addRow(object), we also
-  // re-apply the numFmt to each body cell explicitly to guarantee that
-  // percentages and currencies render correctly (the root cause of the
-  // "raw decimal" bug).
-  for (let colIdx = 0; colIdx < cols.length; colIdx++) {
-    const fmt = cols[colIdx].format;
+  // ExcelJS's column-level `style.numFmt` is applied only to rows added
+  // *after* the column definition, and `addRow(object)` has been observed
+  // not to inherit it reliably. We re-apply the numFmt on every body cell
+  // explicitly, iterating by absolute (row, column) coordinates — the
+  // only form guaranteed to hit every addRow()-written cell.
+  const lastRow = ws.rowCount;
+  for (let colIdx0 = 0; colIdx0 < cols.length; colIdx0++) {
+    const fmt = cols[colIdx0].format;
     if (!fmt) continue;
-    const column = ws.getColumn(colIdx + 1);
-    column.eachCell({ includeEmpty: false }, (cell, rowNum) => {
-      if (rowNum === 1) return; // skip header
+    const colNum = colIdx0 + 1; // ExcelJS is 1-based
+    for (let r = 2; r <= lastRow; r++) {
+      const cell = ws.getCell(r, colNum);
       cell.numFmt = fmt;
-    });
+    }
+  }
+
+  // Debug: log the first body row's numFmt per formatted column so we can
+  // verify in server logs that the formats were written. Empty sheets
+  // (lastRow === 1) are skipped.
+  if (lastRow >= 2) {
+    const sample: Record<string, string | undefined> = {};
+    for (let colIdx0 = 0; colIdx0 < cols.length; colIdx0++) {
+      const fmt = cols[colIdx0].format;
+      if (!fmt) continue;
+      const cell = ws.getCell(2, colIdx0 + 1);
+      sample[cols[colIdx0].header] =
+        `numFmt="${cell.numFmt ?? ""}" value=${JSON.stringify(cell.value)}`;
+    }
+    console.log(`[ppc-report-builder] ${name} row2 numFmt check:`, sample);
   }
 
   applyHeaderStyle(ws.getRow(1));

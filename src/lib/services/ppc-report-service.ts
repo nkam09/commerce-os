@@ -452,9 +452,11 @@ export async function generatePPCReportData(params: {
     adByAsin.set(asin, cur);
   }
 
-  const fromDate = new Date(params.from);
-  const toDate = new Date(params.to);
-  toDate.setHours(23, 59, 59, 999);
+  // Use UTC-anchored Date objects. Prisma maps `@db.Date` columns via UTC
+  // boundaries, so a T00:00:00Z / T23:59:59Z range matches rows stored as
+  // pure dates correctly regardless of server timezone.
+  const fromDate = new Date(params.from + "T00:00:00Z");
+  const toDate = new Date(params.to + "T23:59:59Z");
 
   const skuPnl: SkuPnlRow[] = [];
   try {
@@ -468,14 +470,34 @@ export async function generatePPCReportData(params: {
 
     const productIds = products.map((p) => p.id);
 
-    // Single groupBy query for sales — much faster and surfaces zero-row bugs.
+    // Raw SQL sanity check — confirms the daily_sales table actually has
+    // data for these products in this date window before trusting Prisma.
+    if (productIds.length > 0) {
+      try {
+        const rawCheck = await prisma.$queryRawUnsafe(
+          `SELECT "productId", SUM("grossSales")::text AS gs, SUM("unitsSold")::text AS us
+             FROM daily_sales
+            WHERE date >= $1 AND date <= $2
+              AND "productId" = ANY($3::text[])
+            GROUP BY "productId"`,
+          fromDate,
+          toDate,
+          productIds
+        );
+        console.log(`[ppc-report] skuPnl: raw sales check:`, rawCheck);
+      } catch (e) {
+        console.error(`[ppc-report] skuPnl: raw sales check failed:`, e);
+      }
+    }
+
+    // Filter products by userId above; this query filters only by the
+    // already-scoped productIds — no relation filter on dailySale.
     const salesAgg = productIds.length
       ? await prisma.dailySale.groupBy({
           by: ["productId"],
           where: {
             productId: { in: productIds },
             date: { gte: fromDate, lte: toDate },
-            product: { userId: params.userId },
           },
           _sum: {
             grossSales: true,
@@ -500,7 +522,6 @@ export async function generatePPCReportData(params: {
           where: {
             productId: { in: productIds },
             date: { gte: fromDate, lte: toDate },
-            product: { userId: params.userId },
           },
           _sum: {
             referralFee: true,
