@@ -97,7 +97,7 @@ export function ProductPerformanceTable({
   className,
 }: Props) {
   // ─── Local state ──────────────────────────────────────────────────────────
-  const [datePreset, setDatePreset] = useState<string>("last_30");
+  const [datePreset, setDatePreset] = useState<string>("today");
   const [customFrom, setCustomFrom] = useState<Date | null>(null);
   const [customTo, setCustomTo] = useState<Date | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("products");
