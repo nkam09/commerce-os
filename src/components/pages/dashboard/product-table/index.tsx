@@ -131,7 +131,7 @@ export function ProductPerformanceTable({
   // ─── Data fetching ────────────────────────────────────────────────────────
   const productsUrl = dateRange
     ? `/api/dashboard/tiles/products?period=${datePreset}&from=${dateRange.from}&to=${dateRange.to}`
-    : `/api/dashboard/tiles/products?period=last_30`;
+    : `/api/dashboard/tiles/products?period=${datePreset}`;
 
   console.log("[product-table] fetching data for:", { datePreset, ...dateRange });
 
