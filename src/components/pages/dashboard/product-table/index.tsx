@@ -191,7 +191,7 @@ export function ProductPerformanceTable({
             />
             <TabSelector value={activeTab} onChange={setActiveTab} />
           </div>
-          <div className="flex items-center gap-2 overflow-x-auto scrollbar-none" style={{ scrollbarWidth: "none" }}>
+          <div className="flex items-center gap-2 overflow-visible" style={{ scrollbarWidth: "none" }}>
             <GroupByDropdown value={groupBy} onChange={setGroupBy} />
             <ColumnsDropdown
               columnVisibility={columnVisibility}
