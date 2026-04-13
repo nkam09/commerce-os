@@ -1,15 +1,8 @@
-const { PrismaClient } = require("@prisma/client");
-const p = new PrismaClient();
+const{PrismaClient}=require('@prisma/client');
+const p=new PrismaClient();
 async function main() {
-  const result = await p.syncCursor.updateMany({
-    where: { jobName: "sync-orders" },
-    data: { cursor: "2026-03-01T00:00:00Z" },
-  });
-  console.log("Reset sync-orders cursor:", result);
-  const verify = await p.syncCursor.findFirst({
-    where: { jobName: "sync-orders" },
-  });
-  console.log("Cursor now:", verify);
-  await p["$disconnect"]();
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  await p.$queryRawUnsafe("UPDATE sync_cursors SET cursor=$1 WHERE \"jobName\"='sync-refund-events'", sevenDaysAgo);
+  console.log("Reset sync-refund-events cursor to:", sevenDaysAgo);
 }
-main();
+main().catch(console.error).finally(()=>p.$disconnect());

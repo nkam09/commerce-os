@@ -10,12 +10,17 @@ import { ListView } from "./list-view";
 import { CalendarView } from "./calendar-view";
 import { TimelineView } from "./timeline-view";
 import { TaskDetailPanel } from "./task-detail-panel";
+import { OrderDetailPanel } from "./order-detail-panel";
+import { OrderForm } from "./order-form";
+import { OrderBoardView } from "./order-board-view";
+import { OrderListView } from "./order-list-view";
 import type {
   PMPageData,
   PMTaskData,
   PMSpaceData,
   PMListData,
 } from "@/lib/services/pm-service";
+import type { SupplierOrderData } from "@/lib/types/supplier-order";
 
 type ViewMode = "board" | "list" | "calendar" | "timeline";
 
@@ -95,6 +100,13 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
+  // ── Order state ──────────────────────────────────────────────────────────
+  const [ordersBySpace, setOrdersBySpace] = useState<Record<string, SupplierOrderData[]>>({});
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [selectedOrderSpaceId, setSelectedOrderSpaceId] = useState<string | null>(null);
+  const [showOrderForm, setShowOrderForm] = useState<string | null>(null); // spaceId
+  const [ordersInitialized, setOrdersInitialized] = useState(false);
+
   const handleSelectList = useCallback((listId: string) => {
     setSelectedListId(listId);
     // Auto-close mobile sidebar after selection
@@ -113,6 +125,49 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
       setSelectedListId(data.spaces[0].lists[0].id);
     }
   }
+
+  // ── Load orders for all spaces on init ──────────────────────────────────
+  if (data && initialized && !ordersInitialized) {
+    setOrdersInitialized(true);
+    // Fire-and-forget order loading for each space
+    for (const space of data.spaces) {
+      fetch(`/api/pm/orders?spaceId=${space.id}`)
+        .then((r) => r.json())
+        .then((json) => {
+          if (json.ok) {
+            setOrdersBySpace((prev) => ({ ...prev, [space.id]: json.data }));
+          }
+        })
+        .catch(() => {});
+    }
+  }
+
+  // Selected order
+  const selectedOrder = useMemo<SupplierOrderData | null>(() => {
+    if (!selectedOrderId || !selectedOrderSpaceId) return null;
+    const spaceOrders = ordersBySpace[selectedOrderSpaceId] ?? [];
+    return spaceOrders.find((o) => o.id === selectedOrderId) ?? null;
+  }, [selectedOrderId, selectedOrderSpaceId, ordersBySpace]);
+
+  // Orders for the currently selected space (for board/list view)
+  const ordersForSelectedSpace = useMemo(() => {
+    if (!selectedOrderSpaceId) return [];
+    return ordersBySpace[selectedOrderSpaceId] ?? [];
+  }, [selectedOrderSpaceId, ordersBySpace]);
+
+  // Sidebar order summaries
+  const sidebarOrders = useMemo(() => {
+    const result: Record<string, { id: string; orderNumber: string; status: string; orderDate: string }[]> = {};
+    for (const [spaceId, orders] of Object.entries(ordersBySpace)) {
+      result[spaceId] = orders.map((o) => ({
+        id: o.id,
+        orderNumber: o.orderNumber,
+        status: o.status,
+        orderDate: o.orderDate,
+      }));
+    }
+    return result;
+  }, [ordersBySpace]);
 
   // Find selected list info
   const selectedList = useMemo<PMListData | null>(() => {
@@ -215,6 +270,108 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
       );
     }
   }, []);
+
+  // ── Order handlers ─────────────────────────────────────────────────────────
+
+  const handleSelectOrder = useCallback((orderId: string, spaceId: string) => {
+    setSelectedOrderId(orderId);
+    setSelectedOrderSpaceId(spaceId);
+    setSelectedListId(null); // deselect list
+    setSelectedTask(null);
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      setMobileSidebarOpen(false);
+    }
+  }, []);
+
+  const handleOrderSave = useCallback(async (updated: SupplierOrderData) => {
+    const res = await fetch(`/api/pm/orders/${updated.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        orderNumber: updated.orderNumber,
+        supplier: updated.supplier,
+        orderDate: updated.orderDate,
+        deliveryAddress: updated.deliveryAddress,
+        amazonOrderId: updated.amazonOrderId,
+        amazonRefId: updated.amazonRefId,
+        terms: updated.terms,
+        estProductionDays: updated.estProductionDays,
+        estDeliveryDays: updated.estDeliveryDays,
+        actProductionEnd: updated.actProductionEnd,
+        actDeliveryDate: updated.actDeliveryDate,
+        status: updated.status,
+        notes: updated.notes,
+        lineItems: updated.lineItems.map((item) => ({
+          asin: item.asin,
+          description: item.description,
+          quantity: item.quantity,
+          unit: item.unit,
+          unitPrice: item.unitPrice,
+        })),
+        payments: updated.payments.map((p) => ({
+          label: p.label,
+          amount: p.amount,
+          paidDate: p.paidDate,
+        })),
+      }),
+    });
+    const json = await res.json();
+    if (json.ok) {
+      // Update local state
+      setOrdersBySpace((prev) => ({
+        ...prev,
+        [updated.spaceId]: (prev[updated.spaceId] ?? []).map((o) =>
+          o.id === updated.id ? json.data : o
+        ),
+      }));
+    }
+  }, []);
+
+  const handleOrderDelete = useCallback(async (orderId: string) => {
+    const ok = await apiDelete(`/api/pm/orders/${orderId}`);
+    if (ok && selectedOrderSpaceId) {
+      setOrdersBySpace((prev) => ({
+        ...prev,
+        [selectedOrderSpaceId]: (prev[selectedOrderSpaceId] ?? []).filter(
+          (o) => o.id !== orderId
+        ),
+      }));
+      setSelectedOrderId(null);
+    }
+  }, [selectedOrderSpaceId]);
+
+  const handleCreateOrder = useCallback((spaceId: string) => {
+    setShowOrderForm(spaceId);
+  }, []);
+
+  const handleOrderCreated = useCallback(() => {
+    // Reload orders for the space
+    if (showOrderForm) {
+      fetch(`/api/pm/orders?spaceId=${showOrderForm}`)
+        .then((r) => r.json())
+        .then((json) => {
+          if (json.ok) {
+            setOrdersBySpace((prev) => ({
+              ...prev,
+              [showOrderForm!]: json.data,
+            }));
+          }
+        })
+        .catch(() => {});
+    }
+  }, [showOrderForm]);
+
+  const handleOrderClick = useCallback((order: SupplierOrderData) => {
+    setSelectedOrderId(order.id);
+    setSelectedOrderSpaceId(order.spaceId);
+  }, []);
+
+  // When selecting a list, deselect any order
+  const handleSelectListWrapped = useCallback((listId: string) => {
+    setSelectedOrderId(null);
+    setSelectedOrderSpaceId(null);
+    handleSelectList(listId);
+  }, [handleSelectList]);
 
   // ── Task creation (persisted) ──────────────────────────────────────────────
 
@@ -359,9 +516,13 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
         <PMSidebar
           spaces={localSpaces}
           selectedListId={selectedListId}
-          onSelectList={handleSelectList}
+          selectedOrderId={selectedOrderId}
+          ordersBySpace={sidebarOrders}
+          onSelectList={handleSelectListWrapped}
+          onSelectOrder={handleSelectOrder}
           onCreateSpace={handleCreateSpace}
           onCreateList={handleCreateList}
+          onCreateOrder={handleCreateOrder}
           onDeleteSpace={handleDeleteSpace}
           onDeleteList={handleDeleteList}
           onRenameSpace={handleRenameSpace}
@@ -386,13 +547,21 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
               Projects
             </button>
             <h1 className="text-sm font-semibold text-foreground truncate">
-              {selectedList ? selectedList.name : "Select a list"}
+              {selectedOrderSpaceId && !selectedListId
+                ? "Orders"
+                : selectedList
+                  ? selectedList.name
+                  : "Select a list"}
             </h1>
-            {selectedList && (
+            {selectedOrderSpaceId && !selectedListId ? (
+              <span className="text-2xs text-muted-foreground tabular-nums">
+                {ordersForSelectedSpace.length} orders
+              </span>
+            ) : selectedList ? (
               <span className="text-2xs text-muted-foreground tabular-nums">
                 {tasksForList.length} tasks
               </span>
-            )}
+            ) : null}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {/* View switcher */}
@@ -514,7 +683,31 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
 
         {/* Content area */}
         <div className="flex-1 overflow-auto p-4">
-          {!selectedListId ? (
+          {selectedOrderSpaceId && !selectedListId ? (
+            // ── Order views ────────────────────────────────────────
+            ordersForSelectedSpace.length === 0 ? (
+              <EmptyPlaceholder
+                icon={
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" className="h-8 w-8 text-muted-foreground">
+                    <rect x="3" y="2" width="10" height="12" rx="1" />
+                    <path d="M6 6h4M6 9h4" />
+                  </svg>
+                }
+                title="No orders yet"
+                description="Create a supplier order to get started"
+              />
+            ) : viewMode === "board" ? (
+              <OrderBoardView
+                orders={ordersForSelectedSpace}
+                onOrderClick={handleOrderClick}
+              />
+            ) : (
+              <OrderListView
+                orders={ordersForSelectedSpace}
+                onOrderClick={handleOrderClick}
+              />
+            )
+          ) : !selectedListId ? (
             <EmptyPlaceholder
               icon={
                 <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" className="h-8 w-8 text-muted-foreground">
@@ -572,6 +765,25 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
         onUpdate={handleTaskUpdate}
         onDelete={handleTaskDelete}
       />
+
+      {/* Order Detail Panel */}
+      <OrderDetailPanel
+        order={selectedOrder}
+        onClose={() => {
+          setSelectedOrderId(null);
+        }}
+        onSave={handleOrderSave}
+        onDelete={handleOrderDelete}
+      />
+
+      {/* New Order Form */}
+      {showOrderForm && (
+        <OrderForm
+          spaceId={showOrderForm}
+          onClose={() => setShowOrderForm(null)}
+          onCreated={handleOrderCreated}
+        />
+      )}
     </div>
   );
 }

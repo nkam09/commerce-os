@@ -635,6 +635,7 @@ model PMSpace {
   color     String   @default("#3b82f6")
   order     Int      @default(0)
   lists     PMList[]
+  orders    SupplierOrder[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -702,4 +703,65 @@ model PMComment {
   createdAt DateTime @default(now())
 
   @@map("pm_comments")
+}
+
+// ─── Supplier Orders ──────────────────────────────────────────────────────────
+
+model SupplierOrder {
+  id                String   @id @default(cuid())
+  spaceId           String
+  space             PMSpace  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  orderNumber       String
+  supplier          String   @default("Ningbo Doublefly Import And Export Co., Ltd")
+  orderDate         DateTime @db.Date
+  deliveryAddress   String?  @db.Text
+  amazonOrderId     String?
+  amazonRefId       String?
+  terms             String   @default("50/50 Upfront/Before Delivery")
+
+  estProductionDays Int?
+  estDeliveryDays   Int?
+  actProductionEnd  DateTime? @db.Date
+  actDeliveryDate   DateTime? @db.Date
+
+  status            String   @default("Pending")
+  notes             String?  @db.Text
+
+  lineItems         SupplierOrderItem[]
+  payments          SupplierOrderPayment[]
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("supplier_orders")
+}
+
+model SupplierOrderItem {
+  id          String        @id @default(cuid())
+  orderId     String
+  order       SupplierOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  asin        String
+  description String
+  quantity    Int
+  unit        String        @default("pc.")
+  unitPrice   Decimal       @db.Decimal(10, 4)
+  sortOrder   Int           @default(0)
+
+  createdAt   DateTime      @default(now())
+
+  @@map("supplier_order_items")
+}
+
+model SupplierOrderPayment {
+  id        String        @id @default(cuid())
+  orderId   String
+  order     SupplierOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  label     String
+  amount    Decimal       @db.Decimal(14, 4)
+  paidDate  DateTime?     @db.Date
+  sortOrder Int           @default(0)
+
+  createdAt DateTime      @default(now())
+
+  @@map("supplier_order_payments")
 }

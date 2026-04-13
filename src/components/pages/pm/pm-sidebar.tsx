@@ -4,12 +4,23 @@ import { useState, useCallback } from "react";
 import { cn } from "@/lib/utils/cn";
 import type { PMSpaceData } from "@/lib/services/pm-service";
 
+type OrderSummary = {
+  id: string;
+  orderNumber: string;
+  status: string;
+  orderDate: string;
+};
+
 type PMSidebarProps = {
   spaces: PMSpaceData[];
   selectedListId: string | null;
+  selectedOrderId: string | null;
+  ordersBySpace: Record<string, OrderSummary[]>;
   onSelectList: (listId: string) => void;
+  onSelectOrder: (orderId: string, spaceId: string) => void;
   onCreateSpace: (name: string) => void;
   onCreateList: (name: string, spaceId: string) => void;
+  onCreateOrder: (spaceId: string) => void;
   onDeleteSpace: (spaceId: string) => void;
   onDeleteList: (listId: string) => void;
   onRenameSpace: (spaceId: string, name: string) => void;
@@ -19,9 +30,13 @@ type PMSidebarProps = {
 export function PMSidebar({
   spaces,
   selectedListId,
+  selectedOrderId,
+  ordersBySpace,
   onSelectList,
+  onSelectOrder,
   onCreateSpace,
   onCreateList,
+  onCreateOrder,
   onDeleteSpace,
   onDeleteList,
   onRenameSpace,
@@ -155,6 +170,20 @@ export function PMSidebar({
                       <path d="M8 3v10M3 8h10" />
                     </svg>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onCreateOrder(space.id);
+                      setExpandedSpaces((prev) => new Set([...prev, space.id]));
+                    }}
+                    className="rounded p-0.5 hover:bg-elevated text-muted-foreground hover:text-foreground transition"
+                    title="Add order"
+                  >
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3.5 w-3.5">
+                      <rect x="3" y="2" width="10" height="12" rx="1" />
+                      <path d="M6 6h4M6 9h4" />
+                    </svg>
+                  </button>
                   <div className="relative">
                     <button
                       type="button"
@@ -268,6 +297,42 @@ export function PMSidebar({
                       </div>
                     </div>
                   ))}
+                  {/* Orders under space */}
+                  {(ordersBySpace[space.id] ?? []).length > 0 && (
+                    <div className="mt-1 mb-1">
+                      <div className="px-4 py-1 text-2xs font-medium text-muted-foreground uppercase tracking-wider">
+                        Orders
+                        <span className="ml-1 text-tertiary tabular-nums">
+                          {(ordersBySpace[space.id] ?? []).length}
+                        </span>
+                      </div>
+                      {(ordersBySpace[space.id] ?? []).map((order) => (
+                        <button
+                          key={order.id}
+                          type="button"
+                          onClick={() => onSelectOrder(order.id, space.id)}
+                          className={cn(
+                            "flex items-center gap-2 w-full px-4 py-1.5 text-left transition rounded-r-md",
+                            selectedOrderId === order.id
+                              ? "bg-primary/10 text-foreground"
+                              : "text-muted-foreground hover:text-foreground hover:bg-elevated/50"
+                          )}
+                        >
+                          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3 flex-shrink-0">
+                            <rect x="3" y="2" width="10" height="12" rx="1" />
+                            <path d="M6 6h4M6 9h4" />
+                          </svg>
+                          <span className="text-xs truncate flex-1">
+                            {order.orderNumber.length > 15
+                              ? order.orderNumber.slice(0, 15) + "..."
+                              : order.orderNumber}
+                          </span>
+                          <StatusDot status={order.status} />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Inline new list input */}
                   {addingListForSpace === space.id && (
                     <form
@@ -376,6 +441,26 @@ function SpaceMenu({ onClose, onRename, onDelete }: { onClose: () => void; onRen
         </button>
       </div>
     </>
+  );
+}
+
+const STATUS_DOT_COLORS: Record<string, string> = {
+  Pending: "bg-yellow-500",
+  "In Production": "bg-blue-500",
+  Shipped: "bg-purple-500",
+  Delivered: "bg-green-500",
+  Cancelled: "bg-red-500",
+};
+
+function StatusDot({ status }: { status: string }) {
+  return (
+    <div
+      className={cn(
+        "h-1.5 w-1.5 rounded-full flex-shrink-0",
+        STATUS_DOT_COLORS[status] ?? "bg-muted-foreground"
+      )}
+      title={status}
+    />
   );
 }
 
