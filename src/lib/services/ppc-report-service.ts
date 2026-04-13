@@ -198,12 +198,6 @@ export type PPCReportData = {
 const safeDiv = (num: number, den: number): number =>
   den > 0 ? num / den : 0;
 
-/**
- * Hard cap on total Ads API time so the whole request stays under Render's
- * 60-second limit. Covers request creation + polling + download for all
- * reports running in parallel.
- */
-const ADS_TOTAL_TIMEOUT_MS = 55_000;
 /** Poll interval used while waiting for an Ads report to finish. */
 const POLL_INTERVAL_MS = 5_000;
 /** Max poll attempts (55s / 5s ≈ 11 but we cap higher so the outer timeout wins). */
@@ -405,34 +399,14 @@ export async function generatePPCReportData(params: {
       `[ppc-report] create phase done in ${Date.now() - createStart}ms, ${pollTasks.length} polls running`
     );
 
-    // Phase 3: race all poll tasks against the global deadline. Whichever
-    // reports finish first populate `results`; the rest are abandoned.
-    const timeoutPromise = new Promise<"timeout">((resolve) =>
-      setTimeout(() => resolve("timeout"), ADS_TOTAL_TIMEOUT_MS)
-    );
+    // Phase 3: wait for all poll tasks to settle. No global timeout —
+    // Render's plan allows long-running requests (>60s observed to work).
+    // Individual failures are caught per-task above and logged as warnings.
     const pollStart = Date.now();
-    const raceOutcome = await Promise.race([
-      Promise.all(pollTasks).then(() => "done" as const),
-      timeoutPromise,
-    ]);
+    await Promise.all(pollTasks);
     console.log(
-      `[ppc-report] poll phase ${raceOutcome} in ${Date.now() - pollStart}ms`
+      `[ppc-report] poll phase done in ${Date.now() - pollStart}ms`
     );
-    if (raceOutcome === "timeout") {
-      warnings.push(
-        `Ads API polling exceeded ${ADS_TOTAL_TIMEOUT_MS / 1000}s — some tabs may be incomplete`
-      );
-    }
-
-    // Emit per-report timeout warnings for any reports that are still
-    // missing from `results`.
-    for (const spec of specs) {
-      if (!(spec.key in results)) {
-        if (!warnings.some((w) => w.startsWith(`${spec.label} `))) {
-          warnings.push(`${spec.label}: data unavailable — report timed out`);
-        }
-      }
-    }
   }
 
   const spCampaignRows: AdsReportRow[] = results.campaigns ?? [];
@@ -523,7 +497,7 @@ export async function generatePPCReportData(params: {
     return {
       campaignId: String(r.campaignId ?? ""),
       campaignName: String(r.campaignName ?? ""),
-      placement: String((r.placementClassification as string | undefined) ?? ""),
+      placement: String((r.campaignPlacement as string | undefined) ?? ""),
       impressions: toNum(r.impressions),
       clicks: toNum(r.clicks),
       spend,
@@ -564,36 +538,17 @@ export async function generatePPCReportData(params: {
 
     const productIds = products.map((p) => p.id);
 
-    // Raw SQL sanity check — confirms the daily_sales table actually has
-    // data for these products in this date window before trusting Prisma.
-    if (productIds.length > 0) {
-      try {
-        const rawCheck = await prisma.$queryRawUnsafe(
-          `SELECT "productId", SUM("grossSales")::text AS gs, SUM("unitsSold")::text AS us
-             FROM daily_sales
-            WHERE date >= $1 AND date <= $2
-              AND "productId" = ANY($3::text[])
-            GROUP BY "productId"`,
-          fromDate,
-          toDate,
-          productIds
-        );
-        console.log(`[ppc-report] skuPnl: raw sales check:`, rawCheck);
-      } catch (e) {
-        console.error(`[ppc-report] skuPnl: raw sales check failed:`, e);
-      }
-    }
-
-    // Filter products by userId above; this query filters only by the
-    // already-scoped productIds — no relation filter on dailySale.
-    const salesAgg = productIds.length
-      ? await prisma.dailySale.groupBy({
-          by: ["productId"],
+    // Fetch ALL daily_sales rows and aggregate in JS. This bypasses Prisma
+    // groupBy quirks that were returning 0 for grossSales (Decimal fields
+    // plus groupBy _sum have known edge-case issues in some Prisma versions).
+    const allSales = productIds.length
+      ? await prisma.dailySale.findMany({
           where: {
             productId: { in: productIds },
             date: { gte: fromDate, lte: toDate },
           },
-          _sum: {
+          select: {
+            productId: true,
             grossSales: true,
             unitsSold: true,
             refundCount: true,
@@ -602,22 +557,40 @@ export async function generatePPCReportData(params: {
         })
       : [];
     console.log(
-      `[ppc-report] skuPnl: salesAgg rows=${salesAgg.length}`,
-      salesAgg.map((s) => ({
-        productId: s.productId,
-        units: toNum(s._sum.unitsSold),
-        gross: toNum(s._sum.grossSales),
-      }))
+      `[ppc-report] skuPnl: fetched ${allSales.length} daily_sales rows`
     );
 
-    const feesAgg = productIds.length
-      ? await prisma.dailyFee.groupBy({
-          by: ["productId"],
+    const salesByProduct = new Map<
+      string,
+      { gross: number; units: number; refunds: number; refundAmt: number }
+    >();
+    for (const row of allSales) {
+      const cur = salesByProduct.get(row.productId) ?? {
+        gross: 0,
+        units: 0,
+        refunds: 0,
+        refundAmt: 0,
+      };
+      cur.gross += Number(row.grossSales);
+      cur.units += row.unitsSold;
+      cur.refunds += row.refundCount;
+      cur.refundAmt += Number(row.refundAmount);
+      salesByProduct.set(row.productId, cur);
+    }
+    console.log(
+      `[ppc-report] skuPnl: JS-aggregated sales:`,
+      Object.fromEntries(salesByProduct)
+    );
+
+    // Same approach for fees — findMany + JS aggregation.
+    const allFees = productIds.length
+      ? await prisma.dailyFee.findMany({
           where: {
             productId: { in: productIds },
             date: { gte: fromDate, lte: toDate },
           },
-          _sum: {
+          select: {
+            productId: true,
             referralFee: true,
             fbaFee: true,
             storageFee: true,
@@ -626,19 +599,34 @@ export async function generatePPCReportData(params: {
         })
       : [];
 
-    const salesByProduct = new Map(salesAgg.map((s) => [s.productId, s]));
-    const feesByProduct = new Map(feesAgg.map((f) => [f.productId, f]));
+    const feesByProduct = new Map<
+      string,
+      { referral: number; fba: number; storage: number; other: number }
+    >();
+    for (const row of allFees) {
+      const cur = feesByProduct.get(row.productId) ?? {
+        referral: 0,
+        fba: 0,
+        storage: 0,
+        other: 0,
+      };
+      cur.referral += Number(row.referralFee);
+      cur.fba += Number(row.fbaFee);
+      cur.storage += Number(row.storageFee);
+      cur.other += Number(row.otherFees);
+      feesByProduct.set(row.productId, cur);
+    }
 
     for (const p of products) {
       const s = salesByProduct.get(p.id);
       const f = feesByProduct.get(p.id);
 
-      const unitsSold = toNum(s?._sum.unitsSold);
-      const grossSales = toNum(s?._sum.grossSales);
-      const refundAmount = toNum(s?._sum.refundAmount);
-      const referralFees = toNum(f?._sum.referralFee);
-      const fbaFees = toNum(f?._sum.fbaFee);
-      const otherFees = toNum(f?._sum.otherFees) + toNum(f?._sum.storageFee);
+      const unitsSold = s?.units ?? 0;
+      const grossSales = s?.gross ?? 0;
+      const refundAmount = s?.refundAmt ?? 0;
+      const referralFees = f?.referral ?? 0;
+      const fbaFees = f?.fba ?? 0;
+      const otherFees = (f?.other ?? 0) + (f?.storage ?? 0);
 
       const cogsPer = COGS_BY_ASIN[p.asin ?? ""] ?? 0;
       const cogs = cogsPer * unitsSold;

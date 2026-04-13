@@ -299,11 +299,13 @@ export class AdsApiClient {
     endDate: string;
     includePlacement?: boolean;
   }): Promise<{ reportId: string }> {
-    // For placement breakdown, both groupBy and columns must include
-    // "placementClassification". The old "campaignPlacement" value is
-    // rejected by the API.
+    // "campaignPlacement" is a valid groupBy dimension (not a column).
+    // When it's in groupBy the API automatically includes a
+    // "campaignPlacement" field in each response row (e.g.
+    // "TOP_OF_SEARCH", "DETAIL_PAGE", "OTHER"). Do NOT add it to
+    // the columns array — the API rejects it there.
     const groupBy = params.includePlacement
-      ? ["campaign", "placementClassification"]
+      ? ["campaign", "campaignPlacement"]
       : ["campaign"];
 
     // Minimal, guaranteed-supported column set.
@@ -316,9 +318,6 @@ export class AdsApiClient {
       "purchases7d",
       "sales7d",
     ];
-    if (params.includePlacement) {
-      columns.push("placementClassification");
-    }
 
     const body = {
       name: `SP Campaign Report ${params.startDate} to ${params.endDate}`,
