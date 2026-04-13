@@ -105,7 +105,7 @@ export type SkuPnlRow = {
   grossSales: number;
   adSpend: number;
   adSales: number;
-  ppcUnits: number;       // unitsSold7d from Ads report per ASIN
+  ppcUnits: number;       // purchases7d from Ads report per ASIN
   organicSales: number;   // grossSales - adSales (floored at 0)
   organicUnits: number;   // unitsSold - ppcUnits (floored at 0)
   organicPct: number;     // organicUnits / unitsSold
@@ -534,7 +534,7 @@ export async function generatePPCReportData(params: {
       spend,
       sales,
       orders,
-      unitsSold: toNum(r.unitsSold7d),
+      unitsSold: toNum(r.purchases7d),
       acos,
       roas,
       ctr: safeDiv(clicks, impressions),
@@ -613,7 +613,7 @@ export async function generatePPCReportData(params: {
     const cur = adByAsin.get(asin) ?? { spend: 0, sales: 0, units: 0 };
     cur.spend += toNum(r.cost);
     cur.sales += toNum(r.sales7d);
-    cur.units += toNum(r.unitsSold7d);
+    cur.units += toNum(r.purchases7d);
     adByAsin.set(asin, cur);
   }
   console.log(
@@ -760,7 +760,7 @@ export async function generatePPCReportData(params: {
       const adSpend = ads.spend || stAds.spend;
       const adSales = ads.sales || stAds.sales;
       // Prefer search-term units (more reliable) over advertised-product units.
-      const ppcUnits = stAds.units || ads.units;
+      const ppcUnits = ads.units || stAds.units || 0;
 
       const organicSales = Math.max(0, grossSales - adSales);
       const organicUnits = Math.max(0, unitsSold - ppcUnits);
