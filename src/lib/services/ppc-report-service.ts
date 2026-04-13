@@ -564,22 +564,30 @@ export async function generatePPCReportData(params: {
     if (!placementLoggedFirst) {
       placementLoggedFirst = true;
       console.log(
-        `[ppc-report] placement field: campaignPlacement=${r.campaignPlacement} | placementClassification=${(r as Record<string, unknown>).placementClassification}`
+        `[ppc-report] placement first row: placementClassification=${(r as Record<string, unknown>).placementClassification} | campaignPlacement=${r.campaignPlacement} | all keys=${Object.keys(r).join(",")}`
       );
     }
     const spend = toNum(r.cost);
     const sales = toNum(r.sales7d);
     const clicks = toNum(r.clicks);
     const orders = toNum(r.purchases7d);
-    // Try both possible field names from the API
-    const placementVal =
-      (r.campaignPlacement as string | undefined) ??
-      ((r as Record<string, unknown>).placementClassification as string | undefined) ??
-      "";
+    // "placementClassification" is the column name; "campaignPlacement" is the groupBy key.
+    const rawPlacement = String(
+      (r as Record<string, unknown>).placementClassification ??
+        r.campaignPlacement ??
+        ""
+    );
+    // Map API values to friendly labels
+    const PLACEMENT_LABELS: Record<string, string> = {
+      TOP_OF_SEARCH: "Top of Search",
+      DETAIL_PAGE: "Product Pages",
+      OTHER: "Rest of Search",
+    };
+    const placement = PLACEMENT_LABELS[rawPlacement] ?? rawPlacement;
     return {
       campaignId: String(r.campaignId ?? ""),
       campaignName: String(r.campaignName ?? ""),
-      placement: String(placementVal),
+      placement,
       impressions: toNum(r.impressions),
       clicks,
       spend,

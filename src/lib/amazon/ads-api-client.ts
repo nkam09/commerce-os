@@ -321,6 +321,9 @@ export class AdsApiClient {
       "purchases7d",
       "sales7d",
     ];
+    if (params.includePlacement) {
+      columns.push("placementClassification");
+    }
     const body = {
       name: `SP Campaign Report ${params.startDate} to ${params.endDate}`,
       startDate: params.startDate,
