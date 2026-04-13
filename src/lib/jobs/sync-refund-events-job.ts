@@ -193,6 +193,7 @@ export async function syncRefundEventsJob(ctx: JobContext): Promise<JobResult> {
     let totalSkippedSettlement = 0;
     let totalSkippedUnknown = 0;
     let nextToken: string | undefined;
+    let loggedSample = false;
     const newCursor = new Date().toISOString();
 
     // ── Phase 1: Fetch all pages of financial events ─────────────────────
@@ -207,6 +208,45 @@ export async function syncRefundEventsJob(ctx: JobContext): Promise<JobResult> {
 
       const events = page.FinancialEvents;
       nextToken = page.NextToken;
+
+      // Debug: log response structure and first refund event
+      if (!loggedSample) {
+        console.log(
+          "[sync-refund-events] FinancialEvents keys:",
+          Object.keys(events)
+        );
+        const refundEvents = events.RefundEventList ?? [];
+        if (refundEvents.length > 0) {
+          console.log(
+            "[sync-refund-events] sample refund event:",
+            JSON.stringify(refundEvents[0])
+          );
+          // Also log item-level keys if present
+          const firstItems =
+            refundEvents[0].ShipmentItemList ??
+            (refundEvents[0] as Record<string, unknown>)[
+              "ShipmentItemAdjustmentList"
+            ];
+          console.log(
+            "[sync-refund-events] first event item list key:",
+            refundEvents[0].ShipmentItemList
+              ? "ShipmentItemList"
+              : (refundEvents[0] as Record<string, unknown>)[
+                  "ShipmentItemAdjustmentList"
+                ]
+              ? "ShipmentItemAdjustmentList"
+              : "NEITHER — event keys: " +
+                Object.keys(refundEvents[0]).join(", ")
+          );
+        }
+        if (events.ShipmentEventList) {
+          console.log(
+            "[sync-refund-events] ShipmentEventList count:",
+            events.ShipmentEventList.length
+          );
+        }
+        loggedSample = true;
+      }
 
       const refundEventCount = (events.RefundEventList ?? []).length;
       totalFetched += refundEventCount;
