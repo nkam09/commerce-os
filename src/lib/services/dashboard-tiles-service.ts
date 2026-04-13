@@ -345,13 +345,76 @@ async function queryPeriodMetrics(
       },
       select: { name: true, amount: true, frequency: true },
     });
-    // No proration: Sellerboard charges the full recurring amount as a lump
-    // sum for any period that overlaps the expense's active window. So MTD
-    // day 1 and MTD day 30 both show the same $X monthly charge.
+    // Recurring expenses are charged as a lump sum on their cycle boundary.
+    // MONTHLY: include only when the period contains the 1st of a month.
+    // WEEKLY: include only when the period contains a Monday (ISO day 1).
+    // QUARTERLY: include only when the period contains Jan/Apr/Jul/Oct 1st.
+    // ANNUALLY: include only when the period contains Jan 1st.
+    // ONE_TIME: always included (the WHERE already scoped by effectiveAt).
+    const periodFrom = new Date(period.from);
+    const periodTo = new Date(period.to);
+
+    const periodContainsFirstOfMonth = (() => {
+      // Start from the 1st of `from`'s month; step forward month-by-month.
+      const d = new Date(Date.UTC(periodFrom.getUTCFullYear(), periodFrom.getUTCMonth(), 1));
+      while (d <= periodTo) {
+        if (d >= periodFrom) return true;
+        d.setUTCMonth(d.getUTCMonth() + 1);
+      }
+      return false;
+    })();
+
+    const periodContainsMonday = (() => {
+      const d = new Date(periodFrom);
+      for (let i = 0; i <= 7 && d <= periodTo; i++) {
+        if (d.getUTCDay() === 1) return true;
+        d.setUTCDate(d.getUTCDate() + 1);
+      }
+      return false;
+    })();
+
+    const periodContainsQuarterStart = (() => {
+      const qMonths = [0, 3, 6, 9]; // Jan, Apr, Jul, Oct
+      const d = new Date(Date.UTC(periodFrom.getUTCFullYear(), periodFrom.getUTCMonth(), 1));
+      while (d <= periodTo) {
+        if (d >= periodFrom && qMonths.includes(d.getUTCMonth())) return true;
+        d.setUTCMonth(d.getUTCMonth() + 1);
+      }
+      return false;
+    })();
+
+    const periodContainsJan1 = (() => {
+      const yr = periodFrom.getUTCFullYear();
+      for (let y = yr; y <= periodTo.getUTCFullYear(); y++) {
+        const jan1 = new Date(Date.UTC(y, 0, 1));
+        if (jan1 >= periodFrom && jan1 <= periodTo) return true;
+      }
+      return false;
+    })();
+
     for (const exp of expenses) {
-      const periodAmt = round(toNum(exp.amount));
-      indirectExpenseTotal += periodAmt;
-      indirectExpenseItems.push({ name: exp.name, amount: periodAmt });
+      const amt = toNum(exp.amount);
+      let periodAmt = 0;
+
+      if (exp.frequency === "ONE_TIME") {
+        periodAmt = amt;
+      } else if (exp.frequency === "MONTHLY") {
+        if (periodContainsFirstOfMonth) periodAmt = amt;
+      } else if (exp.frequency === "WEEKLY") {
+        if (periodContainsMonday) periodAmt = amt;
+      } else if (exp.frequency === "QUARTERLY") {
+        if (periodContainsQuarterStart) periodAmt = amt;
+      } else if (exp.frequency === "ANNUALLY") {
+        if (periodContainsJan1) periodAmt = amt;
+      } else {
+        // Unknown frequency — fall back to including it.
+        periodAmt = amt;
+      }
+
+      if (periodAmt > 0) {
+        indirectExpenseTotal += periodAmt;
+        indirectExpenseItems.push({ name: exp.name, amount: round(periodAmt) });
+      }
     }
     indirectExpenseTotal = round(indirectExpenseTotal);
   } catch { /* expense table may not exist yet */ }
