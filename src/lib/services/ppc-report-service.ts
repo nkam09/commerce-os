@@ -545,15 +545,40 @@ export async function generatePPCReportData(params: {
   });
 
   // ── Tab 3: Placement breakdown ────────────────────────────────────────────
+  if (spPlacementRows.length > 0) {
+    console.log(
+      `[ppc-report] placement sample row keys:`,
+      Object.keys(spPlacementRows[0])
+    );
+    console.log(
+      `[ppc-report] placement sample row:`,
+      JSON.stringify(spPlacementRows[0])
+    );
+    console.log(`[ppc-report] placement total rows:`, spPlacementRows.length);
+  } else {
+    console.log(`[ppc-report] placement rows: EMPTY`);
+  }
+  let placementLoggedFirst = false;
   const placements: PlacementRow[] = spPlacementRows.map((r) => {
+    if (!placementLoggedFirst) {
+      placementLoggedFirst = true;
+      console.log(
+        `[ppc-report] placement field: campaignPlacement=${r.campaignPlacement} | placementClassification=${(r as Record<string, unknown>).placementClassification}`
+      );
+    }
     const spend = toNum(r.cost);
     const sales = toNum(r.sales7d);
     const clicks = toNum(r.clicks);
     const orders = toNum(r.purchases7d);
+    // Try both possible field names from the API
+    const placementVal =
+      (r.campaignPlacement as string | undefined) ??
+      ((r as Record<string, unknown>).placementClassification as string | undefined) ??
+      "";
     return {
       campaignId: String(r.campaignId ?? ""),
       campaignName: String(r.campaignName ?? ""),
-      placement: String((r.campaignPlacement as string | undefined) ?? ""),
+      placement: String(placementVal),
       impressions: toNum(r.impressions),
       clicks,
       spend,
@@ -568,6 +593,18 @@ export async function generatePPCReportData(params: {
   // ── Tab 4: Per-SKU P&L ─────────────────────────────────────────────────────
   // Aggregate ad spend/sales/units per ASIN from spAdvertised; then pull
   // DailySale + DailyFee from Prisma for the period.
+  console.log(`[ppc-report] advertisedRows count: ${spAdvertisedRows.length}`);
+  if (spAdvertisedRows.length > 0) {
+    console.log(
+      `[ppc-report] advertised sample row keys:`,
+      Object.keys(spAdvertisedRows[0])
+    );
+    console.log(
+      `[ppc-report] advertised sample row:`,
+      JSON.stringify(spAdvertisedRows[0])
+    );
+  }
+
   const adByAsin = new Map<string, { spend: number; sales: number; units: number }>();
   for (const r of spAdvertisedRows) {
     const asin = String(r.advertisedAsin ?? "");
@@ -578,6 +615,15 @@ export async function generatePPCReportData(params: {
     cur.units += toNum(r.unitsSold7d);
     adByAsin.set(asin, cur);
   }
+  console.log(
+    `[ppc-report] adByAsin:`,
+    Object.fromEntries(
+      [...adByAsin.entries()].map(([k, v]) => [
+        k,
+        { spend: v.spend, sales: v.sales, units: v.units },
+      ])
+    )
+  );
 
   const skuPnl: SkuPnlRow[] = [];
   try {
