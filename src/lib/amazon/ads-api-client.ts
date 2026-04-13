@@ -71,7 +71,13 @@ export type AdsReportRow = {
   [key: string]: unknown;
 };
 
-export type AdsReportStatus = "IN_PROGRESS" | "COMPLETED" | "FAILED" | "CANCELLED";
+export type AdsReportStatus =
+  | "IN_PROGRESS"
+  | "PROCESSING"
+  | "IN_QUEUE"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELLED";
 
 export type AdsReportResponse = {
   reportId: string;
@@ -412,20 +418,26 @@ export class AdsApiClient {
   ): Promise<AdsReportResponse> {
     const { maxAttempts = 60, intervalMs = 10_000 } = options;
 
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const report = await this.request<AdsReportResponse>(
         "GET",
         `/reporting/reports/${reportId}`
       );
 
-      if (report.status === "COMPLETED") return report;
-      if (report.status === "FAILED" || report.status === "CANCELLED") {
+      // Normalise to uppercase for case-insensitive comparison.
+      const status = (report.status ?? "").toUpperCase();
+      console.log(
+        `[ads-api] poll ${attempt}/${maxAttempts} for ${reportId}: status=${report.status}`
+      );
+
+      if (status === "COMPLETED") return report;
+      if (status === "FAILED" || status === "CANCELLED") {
         throw new Error(
           `Ads report ${reportId} ended with status ${report.status}: ${report.statusDetails ?? ""}`
         );
       }
 
-      // Still IN_PROGRESS — wait before retrying
+      // Still PROCESSING / IN_PROGRESS / IN_QUEUE — wait before retrying
       await new Promise((r) => setTimeout(r, intervalMs));
     }
 

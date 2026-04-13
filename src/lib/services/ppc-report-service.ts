@@ -209,9 +209,10 @@ const safeDiv = (num: number, den: number): number =>
 
 /** Poll interval used while waiting for an Ads report to finish. */
 const POLL_INTERVAL_MS = 10_000;
-/** Max poll attempts — 30 × 10s = 5 minutes per report. All polls run in
- *  parallel so total wall time is still ~5 minutes max. */
-const POLL_MAX_ATTEMPTS = 30;
+/** Max poll attempts — 60 × 10s = 10 minutes per report. Amazon's 30-day
+ *  SUMMARY reports can take 5-10 minutes. All polls run in parallel so
+ *  total wall time is still ~10 minutes max. */
+const POLL_MAX_ATTEMPTS = 60;
 
 const toNum = (v: unknown): number => {
   if (typeof v === "number") return v;
