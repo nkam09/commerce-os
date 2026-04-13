@@ -199,9 +199,10 @@ const safeDiv = (num: number, den: number): number =>
   den > 0 ? num / den : 0;
 
 /** Poll interval used while waiting for an Ads report to finish. */
-const POLL_INTERVAL_MS = 5_000;
-/** Max poll attempts (55s / 5s ≈ 11 but we cap higher so the outer timeout wins). */
-const POLL_MAX_ATTEMPTS = 15;
+const POLL_INTERVAL_MS = 10_000;
+/** Max poll attempts — 30 × 10s = 5 minutes per report. All polls run in
+ *  parallel so total wall time is still ~5 minutes max. */
+const POLL_MAX_ATTEMPTS = 30;
 
 const toNum = (v: unknown): number => {
   if (typeof v === "number") return v;
