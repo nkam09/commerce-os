@@ -12,9 +12,9 @@
  *   2. sync-finances   — build DailyFee
  *   3. sync-inventory  — build InventorySnapshot
  *   4. sync-ads        — build DailyAd
- *   5. sync-returns    — provisional refund counts for recent dates (runs BEFORE
- *                        sync-settlement-refunds so settlements can overwrite)
- *   6. sync-settlement-refunds — build DailySale.refundCount + refundAmount from settlement reports
+ *   5. sync-returns    — provisional refund counts from FBA returns data
+ *   6. sync-refund-events — provisional refund data from Financial Events API (near-real-time)
+ *   7. sync-settlement-refunds — authoritative refund data from settlement reports (overwrites)
  *   7. sync-health-refresh — update connection statuses
  *
  * Note: sync-returns provides provisional refund counts for dates not yet
@@ -37,6 +37,7 @@ import { syncInventoryJob } from "@/lib/jobs/sync-inventory-job";
 import { syncAdsProductsJob } from "@/lib/jobs/sync-ads-products-job";
 import { syncAdsKeywordsJob } from "@/lib/jobs/sync-ads-keywords-job";
 import { syncReturnsJob } from "@/lib/jobs/sync-returns-job";
+import { syncRefundEventsJob } from "@/lib/jobs/sync-refund-events-job";
 import { syncSettlementRefundsJob } from "@/lib/jobs/sync-settlement-refunds-job";
 import { runRecompute, refreshSyncHealth } from "@/lib/services/recompute-orchestration-service";
 
@@ -52,10 +53,12 @@ async function runAllJobs(): Promise<void> {
     { name: "sync-inventory", fn: () => syncInventoryJob(ctx) },
     { name: "sync-ads-products", fn: () => syncAdsProductsJob(ctx) },
     { name: "sync-ads-keywords", fn: () => syncAdsKeywordsJob(ctx) },
-    // sync-returns provides provisional refund counts for dates not yet covered by
-    // settlements. sync-settlement-refunds overwrites with authoritative data when
-    // settlements arrive.
+    // Refund data hierarchy (provisional → authoritative):
+    //   1. sync-returns          — FBA physical returns (provisional)
+    //   2. sync-refund-events    — Financial Events API refunds (provisional, near-real-time)
+    //   3. sync-settlement-refunds — Settlement reports (authoritative, overwrites)
     { name: "sync-returns", fn: () => syncReturnsJob(ctx) },
+    { name: "sync-refund-events", fn: () => syncRefundEventsJob(ctx) },
     { name: "sync-settlement-refunds", fn: () => syncSettlementRefundsJob(ctx) },
   ];
 
