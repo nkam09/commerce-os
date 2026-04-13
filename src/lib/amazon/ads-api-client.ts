@@ -299,10 +299,12 @@ export class AdsApiClient {
     endDate: string;
     includePlacement?: boolean;
   }): Promise<{ reportId: string }> {
-    // groupBy is always ["campaign"]. The placement breakdown comes from
-    // requesting the "placementClassification" column — NOT from a
-    // separate groupBy value ("campaignPlacement" is rejected by the API).
-    const groupBy = ["campaign"];
+    // For placement breakdown, both groupBy and columns must include
+    // "placementClassification". The old "campaignPlacement" value is
+    // rejected by the API.
+    const groupBy = params.includePlacement
+      ? ["campaign", "placementClassification"]
+      : ["campaign"];
 
     // Minimal, guaranteed-supported column set.
     const columns = [

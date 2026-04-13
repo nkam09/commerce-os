@@ -304,6 +304,8 @@ export async function generatePPCReportData(params: {
 
   if (ads) {
     const adsRef = ads;
+    // Ordered by importance: campaigns first, placement last (least
+    // critical and most likely to fail with 400).
     const specs: ReportSpec[] = [
       {
         key: "campaigns",
@@ -314,19 +316,6 @@ export async function generatePPCReportData(params: {
               profileId: "",
               startDate: params.from,
               endDate: params.to,
-            })
-            .then((r) => r.reportId),
-      },
-      {
-        key: "placements",
-        label: "SP campaigns (by placement)",
-        request: () =>
-          adsRef
-            .requestSPCampaignsReport({
-              profileId: "",
-              startDate: params.from,
-              endDate: params.to,
-              includePlacement: true,
             })
             .then((r) => r.reportId),
       },
@@ -356,6 +345,19 @@ export async function generatePPCReportData(params: {
             startDate: params.from,
             endDate: params.to,
           }),
+      },
+      {
+        key: "placements",
+        label: "SP campaigns (by placement)",
+        request: () =>
+          adsRef
+            .requestSPCampaignsReport({
+              profileId: "",
+              startDate: params.from,
+              endDate: params.to,
+              includePlacement: true,
+            })
+            .then((r) => r.reportId),
       },
     ];
 
@@ -387,14 +389,16 @@ export async function generatePPCReportData(params: {
             }
           })()
         );
+        // 1s stagger after successful creates to stay under rate limits.
+        // Skip delay after the last spec or after failures (move on fast).
+        if (i < specs.length - 1) {
+          await new Promise((r) => setTimeout(r, 1000));
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         warnings.push(`${spec.label} create failed: ${msg}`);
         console.error(`[ppc-report] !!! ${spec.label} create failed:`, msg);
-      }
-      // 1s stagger between create calls to stay under rate limits.
-      if (i < specs.length - 1) {
-        await new Promise((r) => setTimeout(r, 1000));
+        // NO delay after failure — move to the next spec immediately.
       }
     }
     console.log(
