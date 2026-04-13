@@ -307,7 +307,6 @@ export class AdsApiClient {
   }): Promise<{ reportId: string }> {
     // For placement breakdown use groupBy: ["campaignPlacement"] alone —
     // combining it with "campaign" is rejected by some account configs.
-    // "campaignPlacement" must also appear in the columns array.
     const groupBy = params.includePlacement
       ? ["campaignPlacement"]
       : ["campaign"];
@@ -322,10 +321,6 @@ export class AdsApiClient {
       "purchases7d",
       "sales7d",
     ];
-    if (params.includePlacement) {
-      columns.push("campaignPlacement");
-    }
-
     const body = {
       name: `SP Campaign Report ${params.startDate} to ${params.endDate}`,
       startDate: params.startDate,
@@ -419,27 +414,52 @@ export class AdsApiClient {
   ): Promise<AdsReportResponse> {
     const { maxAttempts = 60, intervalMs = 10_000 } = options;
 
+    let consecutiveThrottles = 0;
+
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const report = await this.request<AdsReportResponse>(
-        "GET",
-        `/reporting/reports/${reportId}`
-      );
-
-      // Normalise to uppercase for case-insensitive comparison.
-      const status = (report.status ?? "").toUpperCase();
-      console.log(
-        `[ads-api] poll ${attempt}/${maxAttempts} for ${reportId}: status=${report.status}`
-      );
-
-      if (status === "COMPLETED") return report;
-      if (status === "FAILED" || status === "CANCELLED") {
-        throw new Error(
-          `Ads report ${reportId} ended with status ${report.status}: ${report.statusDetails ?? ""}`
+      try {
+        const report = await this.request<AdsReportResponse>(
+          "GET",
+          `/reporting/reports/${reportId}`
         );
-      }
 
-      // Still PROCESSING / IN_PROGRESS / IN_QUEUE — wait before retrying
-      await new Promise((r) => setTimeout(r, intervalMs));
+        // Normalise to uppercase for case-insensitive comparison.
+        const status = (report.status ?? "").toUpperCase();
+        console.log(
+          `[ads-api] poll ${attempt}/${maxAttempts} for ${reportId}: status=${report.status}`
+        );
+
+        consecutiveThrottles = 0; // reset on success
+
+        if (status === "COMPLETED") return report;
+        if (status === "FAILED" || status === "CANCELLED") {
+          throw new Error(
+            `Ads report ${reportId} ended with status ${report.status}: ${report.statusDetails ?? ""}`
+          );
+        }
+
+        // Still PROCESSING / IN_PROGRESS / IN_QUEUE — wait before retrying
+        await new Promise((r) => setTimeout(r, intervalMs));
+      } catch (err: any) {
+        // Handle 429 throttling — retry with backoff instead of failing
+        if (err.message?.includes("429") || err.message?.includes("Throttled")) {
+          consecutiveThrottles++;
+          const backoffMs = Math.min(intervalMs * Math.pow(2, consecutiveThrottles), 60_000);
+          console.log(
+            `[ads-api] poll ${attempt}/${maxAttempts} for ${reportId}: THROTTLED — backing off ${backoffMs}ms`
+          );
+          await new Promise((r) => setTimeout(r, backoffMs));
+          // Don't count throttled attempts — retry the same attempt number
+          attempt--;
+          if (consecutiveThrottles > 10) {
+            throw new Error(
+              `Ads report ${reportId} throttled ${consecutiveThrottles} consecutive times`
+            );
+          }
+          continue;
+        }
+        throw err; // re-throw non-throttle errors
+      }
     }
 
     throw new Error(
