@@ -393,15 +393,17 @@ export async function buildPPCReportWorkbook(
     "flagBidTooHigh",
   ]);
 
-  // ── Tab 7: Competitive ──
+  // ── Tab 7: Competitive (keyword rank radar) ──
   const compCols: ColDef<CompetitiveRow>[] = [
-    { header: "ASIN", key: "asin", width: 14 },
-    { header: "Competitor ASIN", key: "competitorAsin", width: 16 },
-    { header: "Title", key: "competitorTitle", width: 48 },
-    { header: "Brand", key: "competitorBrand", width: 20 },
-    { header: "Price", key: "competitorPrice", width: 12, format: FMT_CURRENCY },
-    { header: "Rating", key: "competitorRating", width: 10, format: FMT_DECIMAL },
-    { header: "Reviews", key: "competitorReviewCount", width: 12, format: FMT_INT },
+    { header: "Keyword", key: "keyword", width: 40 },
+    { header: "Search Volume", key: "searchVolume", width: 16, format: FMT_INT },
+    { header: "Organic Rank", key: "latestOrganicRank", width: 14, format: FMT_INT },
+    { header: "Sponsored Rank", key: "latestSponsoredRank", width: 16, format: FMT_INT },
+    { header: "Rank Change", key: "rankChange", width: 14, format: FMT_INT },
+    { header: "Avg Organic Rank", key: "avgOrganicRank", width: 16, format: FMT_INT },
+    { header: "ACoS", key: "acos", width: 10, format: FMT_PERCENT },
+    { header: "PPC Spend", key: "ppcSpend", width: 12, format: FMT_CURRENCY },
+    { header: "PPC Sales", key: "ppcSales", width: 12, format: FMT_CURRENCY },
   ];
   buildSheet(wb, "Competitive", "FFED7D31", compCols, data.competitive);
 

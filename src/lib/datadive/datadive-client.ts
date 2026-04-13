@@ -1,111 +1,70 @@
 /**
- * Data Dive API Client (STUB)
- *
- * TODO: Replace stub implementations with real API calls.
- * Docs: https://developer.datadive.tools/docs
- *
- * This stub exists so the PPC Report Generator can compile and run end-to-end
- * without blocking on Data Dive credentials or endpoint discovery. All methods
- * return empty arrays. The report builder treats empty results as "no data
- * available" and still produces a valid workbook (the corresponding tabs will
- * render with headers only).
- *
- * When credentials/endpoint details are known:
- *   1. Update `baseUrl` if different.
- *   2. Implement `getKeywordRanks` — likely POST /v1/keywords/ranks with
- *      { keywords, asins, marketplace } body and Bearer auth.
- *   3. Implement `getCompetitorData` — likely POST /v1/competitors with
- *      { asins, marketplace } body.
- *   4. Add error handling and rate-limit backoff consistent with other
- *      Commerce OS API clients (see ads-api-client.ts).
+ * Data Dive API client — fetches keyword rankings and competitor data.
+ * Docs: https://developer.datadive.tools/docs#/v1
+ * Auth: x-api-key header
  */
 
-export type KeywordRankResult = {
+export type RankRadar = {
+  id: string;
+  asin?: { asin: string };
+  title: string;
+  keywordCount: number;
+};
+
+export type RankEntry = {
+  date: string;
+  organicRank: number | null;
+  impressionRank: number | null;
+};
+
+export type RankRadarKeyword = {
   keyword: string;
-  asin: string;
-  rank?: number;
-  organicRank?: number;
-  sponsoredRank?: number;
-  searchVolume?: number;
-  marketplace?: string;
-  // Allow extra fields the real API may return.
-  [key: string]: unknown;
-};
-
-export type CompetitorResult = {
-  asin: string;
-  competitorAsin: string;
-  competitorTitle?: string;
-  competitorBrand?: string;
-  competitorPrice?: number;
-  competitorRating?: number;
-  competitorReviewCount?: number;
-  marketplace?: string;
-  [key: string]: unknown;
-};
-
-export type DataDiveConfig = {
-  apiKey: string;
-  baseUrl?: string;
+  searchVolume: number;
+  ranks: RankEntry[];
+  adData?: {
+    impressionRank: number | null;
+    acos: number | null;
+    ppcSpend: number | null;
+    ppcSales: number | null;
+  };
 };
 
 export class DataDiveClient {
   private apiKey: string;
-  private baseUrl: string;
+  private baseUrl = "https://api.datadive.tools";
 
-  constructor(configOrApiKey: DataDiveConfig | string) {
-    if (typeof configOrApiKey === "string") {
-      this.apiKey = configOrApiKey;
-      this.baseUrl = "https://api.datadive.tools";
-    } else {
-      this.apiKey = configOrApiKey.apiKey;
-      this.baseUrl = configOrApiKey.baseUrl ?? "https://api.datadive.tools";
+  constructor(apiKey: string) {
+    this.apiKey = apiKey;
+  }
+
+  private async request<T>(path: string): Promise<T> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      headers: { "x-api-key": this.apiKey, accept: "application/json" },
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(
+        `Data Dive ${path} failed (${res.status}): ${body.slice(0, 200)}`
+      );
     }
+    return res.json();
   }
 
-  /**
-   * Fetch keyword rank data for a set of keywords × ASINs.
-   *
-   * TODO: Replace stub with real Data Dive call.
-   * Expected endpoint (unverified): POST {baseUrl}/v1/keywords/ranks
-   * Headers: Authorization: Bearer {apiKey}
-   * Body: { keywords, asins, marketplace }
-   */
-  async getKeywordRanks(params: {
-    keywords: string[];
-    asins: string[];
-    marketplace?: string;
-  }): Promise<KeywordRankResult[]> {
-    // TODO: Implement real API call. Returning [] so the report builder
-    // can gracefully render a keywords tab with headers only.
-    void this.apiKey;
-    void this.baseUrl;
-    void params;
-    console.log(
-      `[datadive] getKeywordRanks STUB called (keywords=${params.keywords.length}, asins=${params.asins.length}) — returning []`
+  async listRankRadars(): Promise<RankRadar[]> {
+    const data = await this.request<{ data: { data: RankRadar[] } }>(
+      "/v1/niches/rank-radars"
     );
-    return [];
+    return data.data.data;
   }
 
-  /**
-   * Fetch competitor data for a set of ASINs.
-   *
-   * TODO: Replace stub with real Data Dive call.
-   * Expected endpoint (unverified): POST {baseUrl}/v1/competitors
-   * Headers: Authorization: Bearer {apiKey}
-   * Body: { asins, marketplace }
-   */
-  async getCompetitorData(params: {
-    asins: string[];
-    marketplace?: string;
-  }): Promise<CompetitorResult[]> {
-    // TODO: Implement real API call.
-    void this.apiKey;
-    void this.baseUrl;
-    void params;
-    console.log(
-      `[datadive] getCompetitorData STUB called (asins=${params.asins.length}) — returning []`
+  async getRankRadarKeywords(
+    rankRadarId: string,
+    startDate: string,
+    endDate: string
+  ): Promise<RankRadarKeyword[]> {
+    const data = await this.request<{ data: RankRadarKeyword[] }>(
+      `/v1/niches/rank-radars/${rankRadarId}?startDate=${startDate}&endDate=${endDate}`
     );
-    return [];
+    return data.data;
   }
 }

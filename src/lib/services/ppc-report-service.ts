@@ -26,7 +26,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { AdsApiClient, type AdsReportRow } from "@/lib/amazon/ads-api-client";
 import { getAdsConfigForUser } from "@/lib/amazon/get-sp-client-for-user";
-import { DataDiveClient, type KeywordRankResult, type CompetitorResult } from "@/lib/datadive/datadive-client";
+import { DataDiveClient, type RankRadarKeyword } from "@/lib/datadive/datadive-client";
 
 // ─── Hardcoded COGS ──────────────────────────────────────────────────────────
 // TODO: Move to a product.cost field once the schema supports it.
@@ -163,13 +163,15 @@ export type KeywordRow = {
 };
 
 export type CompetitiveRow = {
-  asin: string;
-  competitorAsin: string;
-  competitorTitle?: string;
-  competitorBrand?: string;
-  competitorPrice?: number;
-  competitorRating?: number;
-  competitorReviewCount?: number;
+  keyword: string;
+  searchVolume: number;
+  latestOrganicRank: number | null;
+  latestSponsoredRank: number | null;
+  rankChange: number | null;      // positive = improved, negative = dropped
+  avgOrganicRank: number | null;
+  acos: number | null;
+  ppcSpend: number | null;
+  ppcSales: number | null;
 };
 
 export type MonthlySummaryRow = {
@@ -254,7 +256,6 @@ export async function generatePPCReportData(params: {
   userId: string;
   from: string; // YYYY-MM-DD
   to: string;   // YYYY-MM-DD
-  dataDiveApiKey?: string;
 }): Promise<PPCReportData> {
   const warnings: string[] = [];
   const period: PPCReportPeriod = { from: params.from, to: params.to };
@@ -789,53 +790,113 @@ export async function generatePPCReportData(params: {
     };
   });
 
-  // ── Data Dive enrichment (keywords + competitive) ─────────────────────────
-  let keywordRanks: KeywordRankResult[] = [];
-  let competitorData: CompetitorResult[] = [];
-  if (params.dataDiveApiKey) {
+  // ── Data Dive: keyword ranks + competitive ─────────────────────────────────
+  let rankRadarKeywords: RankRadarKeyword[] = [];
+  const dataDiveKey =
+    process.env.DATADIVE_API_KEY ?? process.env.DATA_DIVE_API_KEY;
+  if (dataDiveKey) {
     try {
-      const dd = new DataDiveClient(params.dataDiveApiKey);
-      const uniqueKeywords = [
-        ...new Set(keywordRowsBase.map((k) => k.keyword).filter((k) => k.length > 0)),
-      ];
-      keywordRanks = await dd.getKeywordRanks({
-        keywords: uniqueKeywords,
-        asins: TRACKED_ASINS,
-      });
-      competitorData = await dd.getCompetitorData({ asins: TRACKED_ASINS });
+      const dd = new DataDiveClient(dataDiveKey);
+      const radars = await dd.listRankRadars();
+      console.log(
+        `[ppc-report] Data Dive radars:`,
+        radars.map((r) => `${r.asin?.asin} (${r.keywordCount} kw)`)
+      );
+
+      // Find Kitchen Strong radar (B07XYBW774)
+      const ksRadar = radars.find((r) => r.asin?.asin === "B07XYBW774");
+      if (ksRadar) {
+        rankRadarKeywords = await dd.getRankRadarKeywords(
+          ksRadar.id,
+          params.from,
+          params.to
+        );
+        console.log(
+          `[ppc-report] Data Dive: ${rankRadarKeywords.length} keywords from rank radar`
+        );
+      } else {
+        warnings.push("Data Dive: no rank radar found for B07XYBW774");
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      warnings.push(`Data Dive lookup failed: ${msg}`);
+      warnings.push(`Data Dive failed: ${msg}`);
       console.error(`[ppc-report] data dive failed:`, msg);
     }
   } else {
-    warnings.push("Data Dive API key not provided — keyword ranks + competitive tabs will be empty");
+    warnings.push(
+      "Data Dive API key not provided — competitive + rank data will be empty"
+    );
   }
 
-  const rankByKeyword = new Map<string, KeywordRankResult>();
-  for (const rr of keywordRanks) {
-    rankByKeyword.set(rr.keyword.toLowerCase(), rr);
+  // Build a lookup map for keyword enrichment
+  const rankMap = new Map<string, RankRadarKeyword>();
+  for (const kw of rankRadarKeywords) {
+    rankMap.set(kw.keyword.toLowerCase(), kw);
   }
+
   const keywords: KeywordRow[] = keywordRowsBase.map((k) => {
-    const rr = rankByKeyword.get(k.keyword.toLowerCase());
+    const ddMatch = rankMap.get(k.keyword.toLowerCase());
+    const latestRank = ddMatch?.ranks
+      .filter((rk) => rk.organicRank != null && rk.organicRank <= 100)
+      .sort((a, b) => b.date.localeCompare(a.date))[0];
+    const latestSponsored = ddMatch?.ranks
+      .filter((rk) => rk.impressionRank != null)
+      .sort((a, b) => b.date.localeCompare(a.date))[0];
     return {
       ...k,
-      organicRank: rr?.organicRank,
-      sponsoredRank: rr?.sponsoredRank,
-      searchVolume: rr?.searchVolume,
+      organicRank: latestRank?.organicRank ?? undefined,
+      sponsoredRank: latestSponsored?.impressionRank ?? undefined,
+      searchVolume: ddMatch?.searchVolume ?? undefined,
     };
   });
 
-  // ── Tab 7: Competitive ────────────────────────────────────────────────────
-  const competitive: CompetitiveRow[] = competitorData.map((c) => ({
-    asin: c.asin,
-    competitorAsin: c.competitorAsin,
-    competitorTitle: c.competitorTitle,
-    competitorBrand: c.competitorBrand,
-    competitorPrice: c.competitorPrice,
-    competitorRating: c.competitorRating,
-    competitorReviewCount: c.competitorReviewCount,
-  }));
+  // ── Tab 7: Competitive (from Data Dive rank radar) ────────────────────────
+  const competitive: CompetitiveRow[] = rankRadarKeywords
+    .map((kw) => {
+      const validRanks = kw.ranks.filter(
+        (r) => r.organicRank != null && r.organicRank <= 100
+      );
+      const sortedRanks = [...kw.ranks].sort((a, b) =>
+        a.date.localeCompare(b.date)
+      );
+
+      const latestOrganic = sortedRanks
+        .filter((r) => r.organicRank != null && r.organicRank <= 100)
+        .pop();
+      const earliestOrganic = sortedRanks.find(
+        (r) => r.organicRank != null && r.organicRank <= 100
+      );
+      const latestSponsored = sortedRanks
+        .filter((r) => r.impressionRank != null)
+        .pop();
+
+      const avgOrganic =
+        validRanks.length > 0
+          ? validRanks.reduce((s, r) => s + (r.organicRank ?? 0), 0) /
+            validRanks.length
+          : null;
+
+      // positive = improved (rank went down numerically = better),
+      // negative = dropped
+      const rankChange =
+        earliestOrganic && latestOrganic
+          ? (earliestOrganic.organicRank ?? 0) -
+            (latestOrganic.organicRank ?? 0)
+          : null;
+
+      return {
+        keyword: kw.keyword,
+        searchVolume: kw.searchVolume,
+        latestOrganicRank: latestOrganic?.organicRank ?? null,
+        latestSponsoredRank: latestSponsored?.impressionRank ?? null,
+        rankChange,
+        avgOrganicRank: avgOrganic != null ? Math.round(avgOrganic) : null,
+        acos: kw.adData?.acos ?? null,
+        ppcSpend: kw.adData?.ppcSpend ?? null,
+        ppcSales: kw.adData?.ppcSales ?? null,
+      };
+    })
+    .sort((a, b) => b.searchVolume - a.searchVolume);
 
   // ── Tab 8: Monthly summary (aggregated from dailyTrend) ───────────────────
   const monthMap = new Map<
