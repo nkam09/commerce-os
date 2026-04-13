@@ -60,17 +60,23 @@ type RefundItem = {
 /**
  * Extract refund items from RefundEventList.
  *
- * Each refund event has ShipmentItemList (despite the name, these are
- * adjustment items on refund events). We extract:
- * - refundAmount from ItemChargeList where ChargeType = "Principal"
- * - refundCommission from ItemFeeList where FeeType = "Commission"
- * - refundedReferralFee from ItemFeeList where FeeType includes "RefundCommission" or "ReferralFee"
+ * Refund events use ADJUSTMENT variants of all field names:
+ *   ShipmentItemList → ShipmentItemAdjustmentList
+ *   ItemChargeList   → ItemChargeAdjustmentList
+ *   ItemFeeList      → ItemFeeAdjustmentList
+ * We try both variants for resilience.
+ *
+ * Extracts:
+ * - refundAmount from charges where ChargeType = "Principal"
+ * - refundCommission from fees where FeeType = "Commission"
+ * - refundedReferralFee from fees where FeeType = "RefundCommission" or "ReferralFee"
  */
 function extractRefundItems(
   events: SpFinancialEvents,
   fallbackMarketplaceCode: string
 ): RefundItem[] {
   const results: RefundItem[] = [];
+  let loggedFirstEvent = false;
 
   for (const event of events.RefundEventList ?? []) {
     const date = toUtcDateOnly(event.PostedDate);
@@ -78,25 +84,62 @@ function extractRefundItems(
       (event as Record<string, unknown>)["MarketplaceId"] as string | null ??
       fallbackMarketplaceCode;
 
-    for (const item of event.ShipmentItemList ?? []) {
-      const asin = item.ASIN ?? null;
-      const sku = item.SellerSKU ?? null;
-      const qty = (item as Record<string, unknown>).QuantityShipped as number | undefined ?? 1;
+    // Refund events use ShipmentItemAdjustmentList; fall back to ShipmentItemList
+    const eventAny = event as Record<string, unknown>;
+    const items = (
+      (eventAny["ShipmentItemAdjustmentList"] as SpShipmentItem[] | undefined) ??
+      event.ShipmentItemList ??
+      []
+    );
+    const listSource = eventAny["ShipmentItemAdjustmentList"]
+      ? "AdjustmentList"
+      : event.ShipmentItemList
+        ? "ItemList"
+        : "EMPTY";
+
+    if (!loggedFirstEvent) {
+      loggedFirstEvent = true;
+      console.log(
+        `[sync-refund-events] event items: ${items.length} (from ${listSource})`
+      );
+      if (items.length > 0) {
+        console.log(
+          `[sync-refund-events] first item keys:`,
+          Object.keys(items[0]).join(", ")
+        );
+      }
+    }
+
+    for (const item of items) {
+      const itemAny = item as Record<string, unknown>;
+      const asin = item.ASIN ?? (itemAny["ASIN"] as string | undefined) ?? null;
+      const sku = item.SellerSKU ?? (itemAny["SellerSKU"] as string | undefined) ?? null;
+      const qty = (itemAny["QuantityShipped"] as number | undefined) ?? 1;
 
       let refundAmount = 0;
       let refundCommission = 0;
       let refundedReferralFee = 0;
 
-      // Sum Principal charges (item price refunded to customer)
-      for (const charge of item.ItemChargeList ?? []) {
+      // Charges: try ItemChargeAdjustmentList first, then ItemChargeList
+      const charges = (
+        (itemAny["ItemChargeAdjustmentList"] as typeof item.ItemChargeList) ??
+        item.ItemChargeList ??
+        []
+      );
+      for (const charge of charges) {
         if (charge.ChargeType === "Principal") {
           // Refund amounts are negative from Amazon; store as positive
           refundAmount += Math.abs(charge.ChargeAmount.CurrencyAmount ?? 0);
         }
       }
 
-      // Extract fee adjustments
-      for (const fee of item.ItemFeeList ?? []) {
+      // Fees: try ItemFeeAdjustmentList first, then ItemFeeList
+      const fees = (
+        (itemAny["ItemFeeAdjustmentList"] as typeof item.ItemFeeList) ??
+        item.ItemFeeList ??
+        []
+      );
+      for (const fee of fees) {
         const feeType = fee.FeeType ?? "";
         const amount = Math.abs(fee.FeeAmount.CurrencyAmount ?? 0);
 
