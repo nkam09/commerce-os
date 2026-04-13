@@ -314,7 +314,6 @@ export async function generatePPCReportData(params: {
               profileId: "",
               startDate: params.from,
               endDate: params.to,
-              groupBy: ["campaign"],
             })
             .then((r) => r.reportId),
       },
@@ -327,7 +326,7 @@ export async function generatePPCReportData(params: {
               profileId: "",
               startDate: params.from,
               endDate: params.to,
-              groupBy: ["campaign", "campaignPlacement"],
+              includePlacement: true,
             })
             .then((r) => r.reportId),
       },
@@ -360,46 +359,47 @@ export async function generatePPCReportData(params: {
       },
     ];
 
-    // Phase 1: fire all createReport calls in parallel.
-    console.log(`[ppc-report] requesting ${specs.length} Ads reports in parallel`);
+    // Phase 1: create reports with 1s stagger to avoid 429 rate-limit
+    // responses from the Ads API. Each report that succeeds immediately
+    // enters the parallel-poll pool (Phase 2).
+    console.log(`[ppc-report] requesting ${specs.length} Ads reports (1s stagger)`);
     const createStart = Date.now();
-    const created = await Promise.allSettled(
-      specs.map((s) => s.request())
-    );
-    console.log(
-      `[ppc-report] create phase done in ${Date.now() - createStart}ms`
-    );
-
-    // Phase 2: start poll+download tasks for every successfully-created
-    // report. Each task writes into `results[key]` on success; failures
-    // push to warnings but never reject the outer Promise.
     const pollTasks: Promise<void>[] = [];
+
     for (let i = 0; i < specs.length; i++) {
       const spec = specs[i];
-      const createResult = created[i];
-      if (createResult.status === "rejected") {
-        const msg =
-          createResult.reason instanceof Error
-            ? createResult.reason.message
-            : String(createResult.reason);
+      try {
+        const reportId = await spec.request();
+        console.log(
+          `[ppc-report]     ${spec.label}: created reportId=${reportId}`
+        );
+        // Kick off poll+download immediately — it runs concurrently with
+        // subsequent createReport calls AND with already-running polls.
+        pollTasks.push(
+          (async () => {
+            try {
+              const rows = await pollAndDownload(adsRef, spec.label, reportId);
+              results[spec.key] = rows;
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              warnings.push(`${spec.label} failed: ${msg}`);
+              console.error(`[ppc-report] !!! ${spec.label} failed:`, msg);
+            }
+          })()
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
         warnings.push(`${spec.label} create failed: ${msg}`);
         console.error(`[ppc-report] !!! ${spec.label} create failed:`, msg);
-        continue;
       }
-      const reportId = createResult.value;
-      pollTasks.push(
-        (async () => {
-          try {
-            const rows = await pollAndDownload(adsRef, spec.label, reportId);
-            results[spec.key] = rows;
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            warnings.push(`${spec.label} failed: ${msg}`);
-            console.error(`[ppc-report] !!! ${spec.label} failed:`, msg);
-          }
-        })()
-      );
+      // 1s stagger between create calls to stay under rate limits.
+      if (i < specs.length - 1) {
+        await new Promise((r) => setTimeout(r, 1000));
+      }
     }
+    console.log(
+      `[ppc-report] create phase done in ${Date.now() - createStart}ms, ${pollTasks.length} polls running`
+    );
 
     // Phase 3: race all poll tasks against the global deadline. Whichever
     // reports finish first populate `results`; the rest are abandoned.
@@ -519,7 +519,7 @@ export async function generatePPCReportData(params: {
     return {
       campaignId: String(r.campaignId ?? ""),
       campaignName: String(r.campaignName ?? ""),
-      placement: String((r.campaignPlacement as string | undefined) ?? ""),
+      placement: String((r.placementClassification as string | undefined) ?? ""),
       impressions: toNum(r.impressions),
       clicks: toNum(r.clicks),
       spend,

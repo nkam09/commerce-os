@@ -51,7 +51,12 @@ export async function GET(req: Request) {
       return apiError("`from` must be on or before `to`", 400);
     }
 
-    const dataDiveApiKey = process.env.DATA_DIVE_API_KEY;
+    // Accept either naming convention — snake_case or no separator.
+    const dataDiveApiKey =
+      process.env.DATADIVE_API_KEY ?? process.env.DATA_DIVE_API_KEY;
+    console.log(
+      `[ppc-report] DATADIVE_API_KEY present: ${!!process.env.DATADIVE_API_KEY}, DATA_DIVE_API_KEY present: ${!!process.env.DATA_DIVE_API_KEY}`
+    );
 
     const data = await generatePPCReportData({
       userId,

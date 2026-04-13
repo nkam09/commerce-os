@@ -297,16 +297,14 @@ export class AdsApiClient {
     profileId: string;
     startDate: string;
     endDate: string;
-    groupBy?: string[];
+    includePlacement?: boolean;
   }): Promise<{ reportId: string }> {
-    const groupBy = params.groupBy ?? ["campaign"];
+    // groupBy is always ["campaign"]. The placement breakdown comes from
+    // requesting the "placementClassification" column — NOT from a
+    // separate groupBy value ("campaignPlacement" is rejected by the API).
+    const groupBy = ["campaign"];
 
-    // Minimal, guaranteed-supported column set. Optional columns that are
-    // known to cause silent 4xx failures on some account types
-    // (campaignStatus, campaignBudgetAmount, campaignBudgetType, acos7d,
-    // roas7d, clickThroughRate, costPerClick, unitsSold7d) have been
-    // removed. Re-introduce them one at a time only after confirming they
-    // work live.
+    // Minimal, guaranteed-supported column set.
     const columns = [
       "campaignName",
       "campaignId",
@@ -316,8 +314,8 @@ export class AdsApiClient {
       "purchases7d",
       "sales7d",
     ];
-    if (groupBy.includes("campaignPlacement")) {
-      columns.push("campaignPlacement");
+    if (params.includePlacement) {
+      columns.push("placementClassification");
     }
 
     const body = {
