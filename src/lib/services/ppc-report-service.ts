@@ -617,13 +617,36 @@ export async function generatePPCReportData(params: {
     adByAsin.set(asin, cur);
   }
   console.log(
-    `[ppc-report] adByAsin:`,
+    `[ppc-report] adByAsin (from advertised):`,
     Object.fromEntries(
       [...adByAsin.entries()].map(([k, v]) => [
         k,
         { spend: v.spend, sales: v.sales, units: v.units },
       ])
     )
+  );
+
+  // Build PPC units + ad spend per ASIN from search term rows as a
+  // fallback — the advertised product report's unitsSold7d can be
+  // unreliable, and search term data is available even when the
+  // advertised report returns empty.
+  const stPpcByAsin = new Map<
+    string,
+    { spend: number; sales: number; units: number }
+  >();
+  for (const r of spSearchTermRows) {
+    const campaignName = String(r.campaignName ?? "");
+    const matchedAsin = TRACKED_ASINS.find((a) => campaignName.includes(a));
+    if (!matchedAsin) continue;
+    const cur = stPpcByAsin.get(matchedAsin) ?? { spend: 0, sales: 0, units: 0 };
+    cur.spend += toNum(r.cost);
+    cur.sales += toNum(r.sales7d);
+    cur.units += toNum(r.purchases7d);
+    stPpcByAsin.set(matchedAsin, cur);
+  }
+  console.log(
+    `[ppc-report] stPpcByAsin (from search terms):`,
+    Object.fromEntries(stPpcByAsin)
   );
 
   const skuPnl: SkuPnlRow[] = [];
@@ -732,8 +755,14 @@ export async function generatePPCReportData(params: {
       const cogs = cogsPer * unitsSold;
 
       const ads = adByAsin.get(p.asin ?? "") ?? { spend: 0, sales: 0, units: 0 };
-      const organicSales = Math.max(0, grossSales - ads.sales);
-      const ppcUnits = ads.units;
+      const stAds = stPpcByAsin.get(p.asin ?? "") ?? { spend: 0, sales: 0, units: 0 };
+      // Prefer advertised-product data; fall back to search-term aggregation.
+      const adSpend = ads.spend || stAds.spend;
+      const adSales = ads.sales || stAds.sales;
+      // Prefer search-term units (more reliable) over advertised-product units.
+      const ppcUnits = stAds.units || ads.units;
+
+      const organicSales = Math.max(0, grossSales - adSales);
       const organicUnits = Math.max(0, unitsSold - ppcUnits);
       const organicPct = safeDiv(organicUnits, unitsSold);
 
@@ -744,18 +773,18 @@ export async function generatePPCReportData(params: {
         referralFees -
         fbaFees -
         otherFees -
-        ads.spend;
+        adSpend;
 
       const marginPct = safeDiv(netProfit, grossSales);
-      const tacos = safeDiv(ads.spend, grossSales);
+      const tacos = safeDiv(adSpend, grossSales);
 
       skuPnl.push({
         asin: p.asin ?? "",
         sku: p.sku ?? undefined,
         unitsSold,
         grossSales,
-        adSpend: ads.spend,
-        adSales: ads.sales,
+        adSpend,
+        adSales,
         ppcUnits,
         organicSales,
         organicUnits,
