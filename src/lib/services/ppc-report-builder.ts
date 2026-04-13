@@ -172,6 +172,18 @@ function buildSheet<T>(
     console.log(`[ppc-report-builder] ${name} row2 numFmt check:`, sample);
   }
 
+  // Auto-fit column widths based on cell content. The ColDef `width` is
+  // treated as a minimum; the auto-fit can only grow it.
+  for (let c = 1; c <= ws.columnCount; c++) {
+    const col = ws.getColumn(c);
+    let maxLen = cols[c - 1]?.width ?? 10;
+    col.eachCell({ includeEmpty: false }, (cell) => {
+      const len = cell.value != null ? String(cell.value).length + 2 : 0;
+      if (len > maxLen) maxLen = len;
+    });
+    col.width = Math.min(maxLen, 60);
+  }
+
   applyHeaderStyle(ws.getRow(1));
   applyBodyFont(ws);
   if (flagKeys.length > 0) {
@@ -245,9 +257,11 @@ export async function buildPPCReportWorkbook(
     { header: "Impressions", key: "impressions", width: 14, format: FMT_INT },
     { header: "Clicks", key: "clicks", width: 10, format: FMT_INT },
     { header: "Spend", key: "spend", width: 12, format: FMT_CURRENCY },
-    { header: "Sales", key: "sales", width: 12, format: FMT_CURRENCY },
+    { header: "Total Revenue", key: "totalRevenue", width: 16, format: FMT_CURRENCY },
+    { header: "Ad Sales", key: "sales", width: 12, format: FMT_CURRENCY },
     { header: "Orders", key: "orders", width: 10, format: FMT_INT },
     { header: "ACoS", key: "acos", width: 10, format: FMT_PERCENT },
+    { header: "TACoS", key: "tacos", width: 10, format: FMT_PERCENT },
     { header: "RoAS", key: "roas", width: 10, format: FMT_DECIMAL },
     { header: "CTR", key: "ctr", width: 10, format: FMT_PERCENT },
     { header: "CPC", key: "cpc", width: 10, format: FMT_CURRENCY },
@@ -263,7 +277,7 @@ export async function buildPPCReportWorkbook(
   // ── Tab 2: Campaigns ──
   const campaignCols: ColDef<CampaignRow>[] = [
     { header: "Campaign ID", key: "campaignId", width: 16 },
-    { header: "Campaign", key: "campaignName", width: 40 },
+    { header: "Campaign", key: "campaignName", width: 50 },
     { header: "Status", key: "status", width: 12 },
     { header: "Budget", key: "budget", width: 12, format: FMT_CURRENCY },
     { header: "Budget Type", key: "budgetType", width: 14 },
@@ -289,14 +303,16 @@ export async function buildPPCReportWorkbook(
   // ── Tab 3: Placements ──
   const placementCols: ColDef<PlacementRow>[] = [
     { header: "Campaign ID", key: "campaignId", width: 16 },
-    { header: "Campaign", key: "campaignName", width: 40 },
+    { header: "Campaign", key: "campaignName", width: 50 },
     { header: "Placement", key: "placement", width: 24 },
     { header: "Impressions", key: "impressions", width: 14, format: FMT_INT },
     { header: "Clicks", key: "clicks", width: 10, format: FMT_INT },
     { header: "Spend", key: "spend", width: 12, format: FMT_CURRENCY },
     { header: "Sales", key: "sales", width: 12, format: FMT_CURRENCY },
+    { header: "Orders", key: "orders", width: 10, format: FMT_INT },
     { header: "ACoS", key: "acos", width: 10, format: FMT_PERCENT },
     { header: "RoAS", key: "roas", width: 10, format: FMT_DECIMAL },
+    { header: "CVR", key: "cvr", width: 10, format: FMT_PERCENT },
   ];
   buildSheet(wb, "Placements", "FFBF8F00", placementCols, data.placements);
 
@@ -305,6 +321,9 @@ export async function buildPPCReportWorkbook(
     { header: "ASIN", key: "asin", width: 14 },
     { header: "SKU", key: "sku", width: 20 },
     { header: "Units Sold", key: "unitsSold", width: 12, format: FMT_INT },
+    { header: "PPC Units", key: "ppcUnits", width: 12, format: FMT_INT },
+    { header: "Organic Units", key: "organicUnits", width: 14, format: FMT_INT },
+    { header: "Organic %", key: "organicPct", width: 12, format: FMT_PERCENT },
     { header: "Gross Sales", key: "grossSales", width: 14, format: FMT_CURRENCY },
     { header: "Ad Spend", key: "adSpend", width: 12, format: FMT_CURRENCY },
     { header: "Ad Sales", key: "adSales", width: 12, format: FMT_CURRENCY },
@@ -328,7 +347,7 @@ export async function buildPPCReportWorkbook(
   // ── Tab 5: Search Terms ──
   const stCols: ColDef<SearchTermRow>[] = [
     { header: "Campaign ID", key: "campaignId", width: 16 },
-    { header: "Campaign", key: "campaignName", width: 32 },
+    { header: "Campaign", key: "campaignName", width: 50 },
     { header: "Ad Group", key: "adGroupName", width: 24 },
     { header: "Search Term", key: "searchTerm", width: 36 },
     { header: "Targeting", key: "targeting", width: 24 },
@@ -350,7 +369,7 @@ export async function buildPPCReportWorkbook(
   // ── Tab 6: Keywords ──
   const kwCols: ColDef<KeywordRow>[] = [
     { header: "Campaign ID", key: "campaignId", width: 16 },
-    { header: "Campaign", key: "campaignName", width: 32 },
+    { header: "Campaign", key: "campaignName", width: 50 },
     { header: "Ad Group", key: "adGroupName", width: 24 },
     { header: "Keyword ID", key: "keywordId", width: 14 },
     { header: "Keyword", key: "keyword", width: 32 },

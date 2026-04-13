@@ -50,9 +50,11 @@ export type DailyTrendRow = {
   impressions: number;
   clicks: number;
   spend: number;
-  sales: number;
+  totalRevenue: number; // from SP-API DailySale grossSales for all products
+  sales: number;        // ad-attributed sales from Ads API
   orders: number;
   acos: number;       // spend / sales
+  tacos: number;      // spend / totalRevenue
   roas: number;       // sales / spend
   ctr: number;        // clicks / impressions
   cpc: number;        // spend / clicks
@@ -90,8 +92,10 @@ export type PlacementRow = {
   clicks: number;
   spend: number;
   sales: number;
+  orders: number;
   acos: number;
   roas: number;
+  cvr: number;
 };
 
 export type SkuPnlRow = {
@@ -101,7 +105,10 @@ export type SkuPnlRow = {
   grossSales: number;
   adSpend: number;
   adSales: number;
+  ppcUnits: number;       // unitsSold7d from Ads report per ASIN
   organicSales: number;   // grossSales - adSales (floored at 0)
+  organicUnits: number;   // unitsSold - ppcUnits (floored at 0)
+  organicPct: number;     // organicUnits / unitsSold
   cogs: number;
   referralFees: number;
   fbaFees: number;
@@ -416,6 +423,48 @@ export async function generatePPCReportData(params: {
   const spTargetingRows: AdsReportRow[] = results.targeting ?? [];
   const spSearchTermRows: AdsReportRow[] = results.searchTerm ?? [];
 
+  // Use UTC-anchored Date objects. Prisma maps `@db.Date` columns via UTC
+  // boundaries, so a T00:00:00Z / T23:59:59Z range matches rows stored as
+  // pure dates correctly regardless of server timezone.
+  const fromDate = new Date(params.from + "T00:00:00Z");
+  const toDate = new Date(params.to + "T23:59:59Z");
+
+  // ── Daily total revenue from Prisma (for TACoS) ────────────────────────────
+  // We pull grossSales from DailySale across ALL user products for the
+  // period, grouped by date, so the Daily Trend tab can show Total Revenue
+  // and TACoS alongside ad-attributed metrics.
+  const dailyRevenueMap = new Map<string, number>();
+  try {
+    const allUserProducts = await prisma.product.findMany({
+      where: { userId: params.userId },
+      select: { id: true },
+    });
+    const allProductIds = allUserProducts.map((p) => p.id);
+    if (allProductIds.length > 0) {
+      const revRows = await prisma.dailySale.findMany({
+        where: {
+          productId: { in: allProductIds },
+          date: { gte: fromDate, lte: toDate },
+        },
+        select: { date: true, grossSales: true },
+      });
+      for (const row of revRows) {
+        const dateKey = row.date.toISOString().slice(0, 10);
+        dailyRevenueMap.set(
+          dateKey,
+          (dailyRevenueMap.get(dateKey) ?? 0) + Number(row.grossSales)
+        );
+      }
+    }
+    console.log(
+      `[ppc-report] dailyRevenue: ${dailyRevenueMap.size} days from Prisma`
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    warnings.push(`Daily revenue lookup failed: ${msg}`);
+    console.error(`[ppc-report] daily revenue failed:`, msg);
+  }
+
   // ── Tab 1: Daily trend (from spAdvertised date grouping) ──────────────────
   const dailyMap = new Map<
     string,
@@ -443,14 +492,17 @@ export async function generatePPCReportData(params: {
     .map(([date, v]) => {
       const acos = safeDiv(v.spend, v.sales);
       const roas = safeDiv(v.sales, v.spend);
+      const totalRevenue = dailyRevenueMap.get(date) ?? 0;
       return {
         date,
         impressions: v.impressions,
         clicks: v.clicks,
         spend: v.spend,
+        totalRevenue,
         sales: v.sales,
         orders: v.orders,
         acos,
+        tacos: safeDiv(v.spend, totalRevenue),
         roas,
         ctr: safeDiv(v.clicks, v.impressions),
         cpc: safeDiv(v.spend, v.clicks),
@@ -495,37 +547,36 @@ export async function generatePPCReportData(params: {
   const placements: PlacementRow[] = spPlacementRows.map((r) => {
     const spend = toNum(r.cost);
     const sales = toNum(r.sales7d);
+    const clicks = toNum(r.clicks);
+    const orders = toNum(r.purchases7d);
     return {
       campaignId: String(r.campaignId ?? ""),
       campaignName: String(r.campaignName ?? ""),
       placement: String((r.campaignPlacement as string | undefined) ?? ""),
       impressions: toNum(r.impressions),
-      clicks: toNum(r.clicks),
+      clicks,
       spend,
       sales,
+      orders,
       acos: safeDiv(spend, sales),
       roas: safeDiv(sales, spend),
+      cvr: safeDiv(orders, clicks),
     };
   });
 
   // ── Tab 4: Per-SKU P&L ─────────────────────────────────────────────────────
-  // Aggregate ad spend/sales per ASIN from spAdvertised; then pull
+  // Aggregate ad spend/sales/units per ASIN from spAdvertised; then pull
   // DailySale + DailyFee from Prisma for the period.
-  const adByAsin = new Map<string, { spend: number; sales: number }>();
+  const adByAsin = new Map<string, { spend: number; sales: number; units: number }>();
   for (const r of spAdvertisedRows) {
     const asin = String(r.advertisedAsin ?? "");
     if (!asin) continue;
-    const cur = adByAsin.get(asin) ?? { spend: 0, sales: 0 };
+    const cur = adByAsin.get(asin) ?? { spend: 0, sales: 0, units: 0 };
     cur.spend += toNum(r.cost);
     cur.sales += toNum(r.sales7d);
+    cur.units += toNum(r.unitsSold7d);
     adByAsin.set(asin, cur);
   }
-
-  // Use UTC-anchored Date objects. Prisma maps `@db.Date` columns via UTC
-  // boundaries, so a T00:00:00Z / T23:59:59Z range matches rows stored as
-  // pure dates correctly regardless of server timezone.
-  const fromDate = new Date(params.from + "T00:00:00Z");
-  const toDate = new Date(params.to + "T23:59:59Z");
 
   const skuPnl: SkuPnlRow[] = [];
   try {
@@ -632,8 +683,11 @@ export async function generatePPCReportData(params: {
       const cogsPer = COGS_BY_ASIN[p.asin ?? ""] ?? 0;
       const cogs = cogsPer * unitsSold;
 
-      const ads = adByAsin.get(p.asin ?? "") ?? { spend: 0, sales: 0 };
+      const ads = adByAsin.get(p.asin ?? "") ?? { spend: 0, sales: 0, units: 0 };
       const organicSales = Math.max(0, grossSales - ads.sales);
+      const ppcUnits = ads.units;
+      const organicUnits = Math.max(0, unitsSold - ppcUnits);
+      const organicPct = safeDiv(organicUnits, unitsSold);
 
       const netProfit =
         grossSales -
@@ -654,7 +708,10 @@ export async function generatePPCReportData(params: {
         grossSales,
         adSpend: ads.spend,
         adSales: ads.sales,
+        ppcUnits,
         organicSales,
+        organicUnits,
+        organicPct,
         cogs,
         referralFees,
         fbaFees,
@@ -700,6 +757,12 @@ export async function generatePPCReportData(params: {
   });
 
   // ── Tab 6: Keywords ───────────────────────────────────────────────────────
+  if (spTargetingRows.length > 0) {
+    console.log(
+      `[ppc-report] sample targeting row:`,
+      JSON.stringify(spTargetingRows[0])
+    );
+  }
   const keywordRowsBase: KeywordRow[] = spTargetingRows.map((r) => {
     const spend = toNum(r.cost);
     const sales = toNum(r.sales7d);
