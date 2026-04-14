@@ -58,7 +58,7 @@ async function runAllJobs(): Promise<void> {
     //   2. sync-refund-events    — Financial Events API refunds (provisional, near-real-time)
     //   3. sync-settlement-refunds — Settlement reports (authoritative, overwrites)
     { name: "sync-returns", fn: () => syncReturnsJob(ctx) },
-    { name: "sync-refund-events", fn: () => syncRefundEventsJob(ctx) },
+    // { name: "sync-refund-events", fn: () => syncRefundEventsJob(ctx) }, // DISABLED � date attribution issues
     { name: "sync-settlement-refunds", fn: () => syncSettlementRefundsJob(ctx) },
   ];
 
