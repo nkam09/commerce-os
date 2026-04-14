@@ -190,16 +190,30 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
     return selectedList?.statuses ?? ["To Do", "In Progress", "Review", "Done"];
   }, [selectedList]);
 
-  // Orders for the space containing the selected list (for calendar/timeline)
+  // Orders for the space containing the selected list or order (for calendar/timeline)
   const ordersForCurrentList = useMemo<SupplierOrderData[]>(() => {
-    if (!selectedListId) return [];
-    for (const space of localSpaces) {
-      if (space.lists.some((l) => l.id === selectedListId)) {
-        return ordersBySpace[space.id] ?? [];
+    // Try to find space from selected list
+    if (selectedListId) {
+      for (const space of localSpaces) {
+        if (space.lists.some((l) => l.id === selectedListId)) {
+          return ordersBySpace[space.id] ?? [];
+        }
       }
     }
+    // Try to find space from selected order
+    if (selectedOrderId) {
+      for (const [spaceId, orders] of Object.entries(ordersBySpace)) {
+        if (orders.some((o) => o.id === selectedOrderId)) {
+          return orders;
+        }
+      }
+    }
+    // Try from selectedOrderSpaceId (user clicked an order space in sidebar)
+    if (selectedOrderSpaceId && ordersBySpace[selectedOrderSpaceId]) {
+      return ordersBySpace[selectedOrderSpaceId];
+    }
     return [];
-  }, [selectedListId, localSpaces, ordersBySpace]);
+  }, [selectedListId, selectedOrderId, selectedOrderSpaceId, localSpaces, ordersBySpace]);
 
   // Build listId -> name mapping for timeline view
   const listNames = useMemo(() => {
@@ -695,7 +709,7 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
         {/* Content area */}
         <div className="flex-1 overflow-auto p-4">
           {selectedOrderSpaceId && !selectedListId ? (
-            // ── Order views ────────────────────────────────────────
+            // ── Order space selected (no list) ────────────────────
             ordersForSelectedSpace.length === 0 ? (
               <EmptyPlaceholder
                 icon={
@@ -712,13 +726,35 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
                 orders={ordersForSelectedSpace}
                 onOrderClick={handleOrderClick}
               />
-            ) : (
+            ) : viewMode === "list" ? (
               <OrderListView
                 orders={ordersForSelectedSpace}
                 onOrderClick={handleOrderClick}
               />
+            ) : viewMode === "calendar" ? (
+              <CalendarView
+                tasks={[]}
+                orders={ordersForCurrentList}
+                onTaskClick={handleTaskClick}
+                onTaskUpdate={handleTaskUpdate}
+                onOrderClick={handleOrderClick}
+              />
+            ) : viewMode === "timeline" ? (
+              <TimelineView
+                tasks={[]}
+                orders={ordersForCurrentList}
+                listNames={listNames}
+                onTaskClick={handleTaskClick}
+                onTaskUpdate={handleTaskUpdate}
+                onOrderClick={handleOrderClick}
+              />
+            ) : (
+              <OrderBoardView
+                orders={ordersForSelectedSpace}
+                onOrderClick={handleOrderClick}
+              />
             )
-          ) : !selectedListId ? (
+          ) : !selectedListId && ordersForCurrentList.length === 0 ? (
             <EmptyPlaceholder
               icon={
                 <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" className="h-8 w-8 text-muted-foreground">
@@ -726,18 +762,18 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
                   <path d="M5 1v4M11 1v4M2 7h12" />
                 </svg>
               }
-              title="Select a list"
-              description="Select a list from the sidebar to view tasks"
+              title="Select a list or space"
+              description="Select a list or space from the sidebar to view tasks and orders"
             />
-          ) : tasksForList.length === 0 ? (
+          ) : tasksForList.length === 0 && ordersForCurrentList.length === 0 ? (
             <EmptyPlaceholder
               icon={
                 <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" className="h-8 w-8 text-muted-foreground">
                   <path d="M8 3v10M3 8h10" />
                 </svg>
               }
-              title="No tasks yet"
-              description="No tasks yet -- add one or let AI suggest some"
+              title="No tasks or orders yet"
+              description="Add a task or create a supplier order to get started"
             />
           ) : viewMode === "board" ? (
             <BoardView
