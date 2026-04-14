@@ -197,7 +197,26 @@ export async function getInventoryPlannerData(
     historyByProduct.set(row.productId, arr);
   }
 
-  // 5. Build product rows
+  // 5. Ordered quantities from active supplier orders (not yet Delivered or Cancelled)
+  const activeOrderItems = await prisma.$queryRawUnsafe<
+    { asin: string; orderedQty: bigint | number }[]
+  >(
+    `SELECT soi.asin, SUM(soi.quantity) as "orderedQty"
+     FROM supplier_order_items soi
+     JOIN supplier_orders so ON soi."orderId" = so.id
+     JOIN pm_spaces ps ON so."spaceId" = ps.id
+     WHERE ps."userId" = $1
+       AND so.status NOT IN ('Delivered', 'Cancelled')
+     GROUP BY soi.asin`,
+    userId
+  );
+
+  const orderedByAsin = new Map<string, number>();
+  for (const row of activeOrderItems) {
+    orderedByAsin.set(row.asin, Number(row.orderedQty));
+  }
+
+  // 6. Build product rows
   const rows: InventoryProductRow[] = products.map((p) => {
     const snap = snapByProduct.get(p.id);
     const available = snap?.available ?? 0;
@@ -274,7 +293,7 @@ export async function getInventoryPlannerData(
       sentToFba,
       sentToFbaStatus: inbound > 0 ? "In Transit" : "None",
       prepCenterStock,
-      ordered: 0, // PO integration future phase
+      ordered: orderedByAsin.get(p.asin) ?? 0,
       daysUntilNextOrder,
       recommendedReorderQty: reorder.suggestedQty,
       stockValue,
