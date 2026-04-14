@@ -25,6 +25,7 @@ type PMSidebarProps = {
   onDeleteList: (listId: string) => void;
   onRenameSpace: (spaceId: string, name: string) => void;
   onRenameList: (listId: string, name: string) => void;
+  onSelectSpace?: (spaceId: string) => void;
 };
 
 export function PMSidebar({
@@ -41,6 +42,7 @@ export function PMSidebar({
   onDeleteList,
   onRenameSpace,
   onRenameList,
+  onSelectSpace,
 }: PMSidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [expandedSpaces, setExpandedSpaces] = useState<Set<string>>(
@@ -109,7 +111,10 @@ export function PMSidebar({
               <div className="group flex items-center gap-2 px-3 py-1.5 hover:bg-elevated/50 transition">
                 <button
                   type="button"
-                  onClick={() => toggleSpace(space.id)}
+                  onClick={() => {
+                    toggleSpace(space.id);
+                    onSelectSpace?.(space.id);
+                  }}
                   className="rounded p-0.5 hover:bg-elevated transition text-muted-foreground"
                 >
                   <svg

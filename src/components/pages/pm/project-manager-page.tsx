@@ -298,6 +298,13 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
 
   // ── Order handlers ─────────────────────────────────────────────────────────
 
+  const handleSelectSpace = useCallback((spaceId: string) => {
+    setSelectedOrderSpaceId(spaceId);
+    setSelectedListId(null);
+    setSelectedOrderId(null);
+    setSelectedTask(null);
+  }, []);
+
   const handleSelectOrder = useCallback((orderId: string, spaceId: string) => {
     setSelectedOrderId(orderId);
     setSelectedOrderSpaceId(spaceId);
@@ -391,7 +398,7 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
     setSelectedOrderSpaceId(order.spaceId);
   }, []);
 
-  // When selecting a list, deselect any order
+  // When selecting a list, deselect any order and clear space selection
   const handleSelectListWrapped = useCallback((listId: string) => {
     setSelectedOrderId(null);
     setSelectedOrderSpaceId(null);
@@ -552,6 +559,7 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
           onDeleteList={handleDeleteList}
           onRenameSpace={handleRenameSpace}
           onRenameList={handleRenameList}
+          onSelectSpace={handleSelectSpace}
         />
       </div>
 
