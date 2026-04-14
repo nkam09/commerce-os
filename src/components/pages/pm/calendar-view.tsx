@@ -3,13 +3,25 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { cn } from "@/lib/utils/cn";
 import type { PMTaskData } from "@/lib/services/pm-service";
+import type { SupplierOrderData } from "@/lib/types/supplier-order";
+import { addDays } from "@/lib/types/supplier-order";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 type CalendarViewProps = {
   tasks: PMTaskData[];
+  orders?: SupplierOrderData[];
   onTaskClick: (task: PMTaskData) => void;
   onTaskUpdate: (taskId: string, updates: Partial<PMTaskData>) => void;
+  onOrderClick?: (order: SupplierOrderData) => void;
+};
+
+type CalendarEvent = {
+  id: string;
+  label: string;
+  dotColor: string;
+  type: "order";
+  order: SupplierOrderData;
 };
 
 type ViewType = "month" | "week";
@@ -319,8 +331,10 @@ function DayDetailPopover({
 
 export function CalendarView({
   tasks,
+  orders,
   onTaskClick,
   onTaskUpdate,
+  onOrderClick,
 }: CalendarViewProps) {
   const [currentDate, setCurrentDate] = useState<Date>(
     new Date(TODAY.getFullYear(), TODAY.getMonth(), 1),
@@ -344,6 +358,79 @@ export function CalendarView({
     }
     return map;
   }, [tasks]);
+
+  // ── Order events map: dateKey -> events[] ────────────────────────────
+  const orderEventsByDate = useMemo(() => {
+    const map = new Map<string, CalendarEvent[]>();
+    if (!orders) return map;
+
+    const addEvent = (dateStr: string, event: CalendarEvent) => {
+      const arr = map.get(dateStr) ?? [];
+      arr.push(event);
+      map.set(dateStr, arr);
+    };
+
+    for (const order of orders) {
+      const num = order.orderNumber.length > 12
+        ? order.orderNumber.slice(0, 12) + "..."
+        : order.orderNumber;
+
+      // Order placed
+      addEvent(order.orderDate, {
+        id: `${order.id}-placed`,
+        label: `Order ${num} placed`,
+        dotColor: "bg-blue-500",
+        type: "order",
+        order,
+      });
+
+      // Estimated production end
+      if (order.estProductionDays && order.orderDate) {
+        addEvent(addDays(order.orderDate, order.estProductionDays), {
+          id: `${order.id}-est-prod`,
+          label: `Est. production end ${num}`,
+          dotColor: "bg-yellow-500",
+          type: "order",
+          order,
+        });
+      }
+
+      // Actual production end
+      if (order.actProductionEnd) {
+        addEvent(order.actProductionEnd, {
+          id: `${order.id}-act-prod`,
+          label: `Production complete ${num}`,
+          dotColor: "bg-green-500",
+          type: "order",
+          order,
+        });
+      }
+
+      // Estimated delivery
+      if (order.estDeliveryDays && order.orderDate) {
+        addEvent(addDays(order.orderDate, order.estDeliveryDays), {
+          id: `${order.id}-est-del`,
+          label: `Est. delivery ${num}`,
+          dotColor: "bg-orange-500",
+          type: "order",
+          order,
+        });
+      }
+
+      // Actual delivery
+      if (order.actDeliveryDate) {
+        addEvent(order.actDeliveryDate, {
+          id: `${order.id}-act-del`,
+          label: `Delivered ${num}`,
+          dotColor: "bg-green-500",
+          type: "order",
+          order,
+        });
+      }
+    }
+
+    return map;
+  }, [orders]);
 
   // ── Calendar grid ─────────────────────────────────────────────────────
   const calendarDays = useMemo(() => {
@@ -533,8 +620,12 @@ export function CalendarView({
       >
         {calendarDays.map((day) => {
           const dayTasks = tasksByDate.get(day.dateKey) ?? [];
+          const dayOrderEvents = orderEventsByDate.get(day.dateKey) ?? [];
+          const totalItems = dayTasks.length + dayOrderEvents.length;
           const visibleTasks = dayTasks.slice(0, maxVisibleTasks);
-          const overflowCount = dayTasks.length - maxVisibleTasks;
+          const remainingSlots = Math.max(0, maxVisibleTasks - visibleTasks.length);
+          const visibleOrderEvents = dayOrderEvents.slice(0, remainingSlots);
+          const overflowCount = totalItems - visibleTasks.length - visibleOrderEvents.length;
           const isDragTarget = dragOverDay === day.dateKey;
 
           return (
@@ -566,9 +657,9 @@ export function CalendarView({
                 >
                   {day.date.getDate()}
                 </span>
-                {dayTasks.length > 0 && (
+                {totalItems > 0 && (
                   <span className="text-2xs text-tertiary">
-                    {dayTasks.length}
+                    {totalItems}
                   </span>
                 )}
               </div>
@@ -583,6 +674,22 @@ export function CalendarView({
                     onClick={() => onTaskClick(task)}
                     onDragStart={(e) => handleDragStart(e, task.id)}
                   />
+                ))}
+                {visibleOrderEvents.map((evt) => (
+                  <div
+                    key={evt.id}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOrderClick?.(evt.order);
+                    }}
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer border-l-2 border-l-transparent bg-elevated/60 hover:bg-card transition-colors"
+                    title={evt.label}
+                  >
+                    <span className={cn("w-1.5 h-1.5 rounded-sm shrink-0", evt.dotColor)} />
+                    <span className="text-2xs text-muted-foreground truncate leading-tight">
+                      {evt.label}
+                    </span>
+                  </div>
                 ))}
                 {overflowCount > 0 && (
                   <button

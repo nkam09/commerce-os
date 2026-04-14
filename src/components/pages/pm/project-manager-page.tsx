@@ -190,6 +190,17 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
     return selectedList?.statuses ?? ["To Do", "In Progress", "Review", "Done"];
   }, [selectedList]);
 
+  // Orders for the space containing the selected list (for calendar/timeline)
+  const ordersForCurrentList = useMemo<SupplierOrderData[]>(() => {
+    if (!selectedListId) return [];
+    for (const space of localSpaces) {
+      if (space.lists.some((l) => l.id === selectedListId)) {
+        return ordersBySpace[space.id] ?? [];
+      }
+    }
+    return [];
+  }, [selectedListId, localSpaces, ordersBySpace]);
+
   // Build listId -> name mapping for timeline view
   const listNames = useMemo(() => {
     const map: Record<string, string> = {};
@@ -744,15 +755,19 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
           ) : viewMode === "calendar" ? (
             <CalendarView
               tasks={tasksForList}
+              orders={ordersForCurrentList}
               onTaskClick={handleTaskClick}
               onTaskUpdate={handleTaskUpdate}
+              onOrderClick={handleOrderClick}
             />
           ) : (
             <TimelineView
               tasks={tasksForList}
+              orders={ordersForCurrentList}
               listNames={listNames}
               onTaskClick={handleTaskClick}
               onTaskUpdate={handleTaskUpdate}
+              onOrderClick={handleOrderClick}
             />
           )}
         </div>

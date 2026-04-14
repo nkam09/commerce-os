@@ -9,6 +9,8 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import type { PMTaskData } from "@/lib/services/pm-service";
+import type { SupplierOrderData, SupplierOrderItem } from "@/lib/types/supplier-order";
+import { addDays as addDaysStr } from "@/lib/types/supplier-order";
 import { cn } from "@/lib/utils/cn";
 import { formatDate } from "@/lib/utils/formatters";
 
@@ -16,9 +18,11 @@ import { formatDate } from "@/lib/utils/formatters";
 
 type TimelineViewProps = {
   tasks: PMTaskData[];
+  orders?: SupplierOrderData[];
   listNames: Record<string, string>;
   onTaskClick: (task: PMTaskData) => void;
   onTaskUpdate: (taskId: string, updates: Partial<PMTaskData>) => void;
+  onOrderClick?: (order: SupplierOrderData) => void;
 };
 
 type DragState = {
@@ -95,9 +99,11 @@ function parseDate(s: string): Date {
 
 export function TimelineView({
   tasks,
+  orders,
   listNames,
   onTaskClick,
   onTaskUpdate,
+  onOrderClick,
 }: TimelineViewProps) {
   // ── State ────────────────────────────────────────────────────────────────
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
@@ -112,11 +118,32 @@ export function TimelineView({
   const timelineRef = useRef<HTMLDivElement>(null);
   const sidebarBodyRef = useRef<HTMLDivElement>(null);
 
-  // ── Date range ───────────────────────────────────────────────────────────
+  // ── Date range (extend to accommodate orders) ────────────────────────────
 
-  const days = useMemo(() => generateDays(RANGE_START, RANGE_END), []);
+  const { rangeStart, rangeEnd } = useMemo(() => {
+    let start = new Date(RANGE_START);
+    let end = new Date(RANGE_END);
+    if (orders) {
+      for (const o of orders) {
+        const oDate = parseDate(o.orderDate);
+        if (oDate < start) start = new Date(oDate.getFullYear(), oDate.getMonth(), 1);
+        // Extend end to cover delivery
+        const delDate = o.actDeliveryDate
+          ? parseDate(o.actDeliveryDate)
+          : o.estDeliveryDays
+            ? parseDate(addDaysStr(o.orderDate, o.estDeliveryDays))
+            : null;
+        if (delDate && delDate > end) {
+          end = new Date(delDate.getFullYear(), delDate.getMonth() + 1, 0); // end of that month
+        }
+      }
+    }
+    return { rangeStart: start, rangeEnd: end };
+  }, [orders]);
+
+  const days = useMemo(() => generateDays(rangeStart, rangeEnd), [rangeStart, rangeEnd]);
   const totalWidth = days.length * DAY_WIDTH;
-  const todayOffset = daysBetween(RANGE_START, TODAY) * DAY_WIDTH;
+  const todayOffset = daysBetween(rangeStart, TODAY) * DAY_WIDTH;
 
   // ── Grouping ─────────────────────────────────────────────────────────────
 
@@ -164,7 +191,9 @@ export function TimelineView({
     | { type: "group-header"; listId: string; label: string }
     | { type: "task"; task: PMTaskData }
     | { type: "no-date-header" }
-    | { type: "undated-task"; task: PMTaskData };
+    | { type: "undated-task"; task: PMTaskData }
+    | { type: "order-header" }
+    | { type: "order"; order: SupplierOrderData };
 
   const rows = useMemo<Row[]>(() => {
     const result: Row[] = [];
@@ -186,8 +215,16 @@ export function TimelineView({
       }
     }
 
+    // Add order rows
+    if (orders && orders.length > 0) {
+      result.push({ type: "order-header" });
+      for (const order of orders) {
+        result.push({ type: "order", order });
+      }
+    }
+
     return result;
-  }, [groupOrder, listNames, datedGroups, collapsedGroups, undatedTasks]);
+  }, [groupOrder, listNames, datedGroups, collapsedGroups, undatedTasks, orders]);
 
   // ── Scroll sync ──────────────────────────────────────────────────────────
 
@@ -235,7 +272,7 @@ export function TimelineView({
       if (!task.startDate && task.dueDate) {
         // Single-day marker
         const due = parseDate(task.dueDate);
-        let offset = daysBetween(RANGE_START, due) * DAY_WIDTH;
+        let offset = daysBetween(rangeStart, due) * DAY_WIDTH;
         if (hasDrag && dragState.edge === "right") {
           offset += dragOffset;
         }
@@ -246,8 +283,8 @@ export function TimelineView({
         let start = parseDate(task.startDate);
         let end = parseDate(task.dueDate);
 
-        let leftPx = daysBetween(RANGE_START, start) * DAY_WIDTH;
-        let rightPx = (daysBetween(RANGE_START, end) + 1) * DAY_WIDTH;
+        let leftPx = daysBetween(rangeStart, start) * DAY_WIDTH;
+        let rightPx = (daysBetween(rangeStart, end) + 1) * DAY_WIDTH;
 
         if (hasDrag) {
           if (dragState.edge === "left") {
@@ -264,7 +301,7 @@ export function TimelineView({
       // startDate but no dueDate — use startDate as single marker
       if (task.startDate) {
         const start = parseDate(task.startDate);
-        let offset = daysBetween(RANGE_START, start) * DAY_WIDTH;
+        let offset = daysBetween(rangeStart, start) * DAY_WIDTH;
         if (hasDrag && dragState.edge === "left") {
           offset += dragOffset;
         }
@@ -273,7 +310,7 @@ export function TimelineView({
 
       return null;
     },
-    [dragState, dragOffset]
+    [dragState, dragOffset, rangeStart]
   );
 
   // ── Drag handling ────────────────────────────────────────────────────────
@@ -309,7 +346,7 @@ export function TimelineView({
         const original = parseDate(dragState.originalDate);
         const newDate = new Date(original);
         newDate.setDate(newDate.getDate() + daysDelta);
-        const clamped = clampDate(newDate, RANGE_START, RANGE_END);
+        const clamped = clampDate(newDate, rangeStart, rangeEnd);
         const dateStr = toDateString(clamped);
 
         if (dragState.edge === "left") {
@@ -329,7 +366,7 @@ export function TimelineView({
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [dragState, onTaskUpdate]);
+  }, [dragState, onTaskUpdate, rangeStart, rangeEnd]);
 
   // ── Tooltip tracking ─────────────────────────────────────────────────────
 
@@ -348,8 +385,17 @@ export function TimelineView({
   // ── Find hovered task data ───────────────────────────────────────────────
 
   const hoveredTaskData = useMemo(
-    () => (hoveredTask ? tasks.find((t) => t.id === hoveredTask) : null),
+    () => (hoveredTask && !hoveredTask.startsWith("order-") ? tasks.find((t) => t.id === hoveredTask) : null),
     [hoveredTask, tasks]
+  );
+
+  const hoveredOrderData = useMemo(
+    () => {
+      if (!hoveredTask || !hoveredTask.startsWith("order-") || !orders) return null;
+      const orderId = hoveredTask.replace("order-", "");
+      return orders.find((o) => o.id === orderId) || null;
+    },
+    [hoveredTask, orders]
   );
 
   // ── Compute total content height ─────────────────────────────────────────
@@ -358,7 +404,7 @@ export function TimelineView({
     let h = 0;
     for (const row of rows) {
       h +=
-        row.type === "group-header" || row.type === "no-date-header"
+        row.type === "group-header" || row.type === "no-date-header" || row.type === "order-header"
           ? GROUP_HEADER_HEIGHT
           : ROW_HEIGHT;
     }
@@ -367,7 +413,7 @@ export function TimelineView({
 
   // ── Empty state ──────────────────────────────────────────────────────────
 
-  if (tasks.length === 0) {
+  if (tasks.length === 0 && (!orders || orders.length === 0)) {
     return (
       <div className="flex h-64 items-center justify-center text-muted-foreground">
         No tasks to display on the timeline.
@@ -465,7 +511,36 @@ export function TimelineView({
                   );
                 }
 
-                const task = row.task;
+                if (row.type === "order-header") {
+                  return (
+                    <div
+                      key="order-header"
+                      className="flex items-center border-b border-border/50 border-t border-t-border px-3 text-2xs font-semibold text-amber-400"
+                      style={{ height: GROUP_HEADER_HEIGHT }}
+                    >
+                      Supplier Orders
+                    </div>
+                  );
+                }
+
+                if (row.type === "order") {
+                  const order = row.order;
+                  const totalUnits = order.lineItems.reduce((s: number, it: SupplierOrderItem) => s + it.quantity, 0);
+                  return (
+                    <div
+                      key={`order-${order.id}`}
+                      className="flex cursor-pointer items-center px-3 text-2xs text-muted-foreground hover:text-foreground hover:bg-elevated/50"
+                      style={{ height: ROW_HEIGHT }}
+                      onClick={() => onOrderClick?.(order)}
+                    >
+                      <span className="truncate">
+                        Order {order.orderNumber.slice(0, 8)}… — {totalUnits.toLocaleString()} units
+                      </span>
+                    </div>
+                  );
+                }
+
+                const task = (row as { type: "task" | "undated-task"; task: PMTaskData }).task;
                 return (
                   <div
                     key={task.id}
@@ -572,7 +647,8 @@ export function TimelineView({
 
                   if (
                     row.type === "group-header" ||
-                    row.type === "no-date-header"
+                    row.type === "no-date-header" ||
+                    row.type === "order-header"
                   ) {
                     yOffset += GROUP_HEADER_HEIGHT;
                     return (
@@ -581,17 +657,125 @@ export function TimelineView({
                         className="absolute left-0 right-0 border-b border-border/30"
                         style={{
                           top: currentY,
-                          height:
-                            row.type === "group-header"
-                              ? GROUP_HEADER_HEIGHT
-                              : GROUP_HEADER_HEIGHT,
+                          height: GROUP_HEADER_HEIGHT,
                         }}
                       />
                     );
                   }
 
                   yOffset += ROW_HEIGHT;
-                  const task = row.task;
+
+                  // ── Order bar rendering ──────────────────────────
+                  if (row.type === "order") {
+                    const order = row.order;
+                    const orderDate = parseDate(order.orderDate);
+
+                    // Production bar: orderDate → actProductionEnd ?? orderDate + estProductionDays
+                    const prodEnd = order.actProductionEnd
+                      ? parseDate(order.actProductionEnd)
+                      : order.estProductionDays
+                        ? parseDate(addDaysStr(order.orderDate, order.estProductionDays))
+                        : null;
+
+                    // Delivery bar: (actProductionEnd ?? estProductionEnd) → actDeliveryDate ?? orderDate + estDeliveryDays
+                    const delStart = order.actProductionEnd
+                      ? parseDate(order.actProductionEnd)
+                      : order.estProductionDays
+                        ? parseDate(addDaysStr(order.orderDate, order.estProductionDays))
+                        : null;
+                    const delEnd = order.actDeliveryDate
+                      ? parseDate(order.actDeliveryDate)
+                      : order.estDeliveryDays
+                        ? parseDate(addDaysStr(order.orderDate, order.estDeliveryDays))
+                        : null;
+
+                    const prodColor = order.actProductionEnd ? "#22c55e" : "#3b82f6";
+                    const delColor = order.actDeliveryDate ? "#22c55e" : "#f97316";
+
+                    const barTop = currentY + (ROW_HEIGHT - BAR_HEIGHT) / 2;
+
+                    return (
+                      <div
+                        key={`order-${order.id}`}
+                        className="absolute z-10"
+                        style={{ top: currentY, height: ROW_HEIGHT }}
+                      >
+                        {/* Production bar */}
+                        {prodEnd && (() => {
+                          const leftPx = daysBetween(rangeStart, orderDate) * DAY_WIDTH;
+                          const rightPx = (daysBetween(rangeStart, prodEnd) + 1) * DAY_WIDTH;
+                          const width = Math.max(rightPx - leftPx, DAY_WIDTH);
+                          return (
+                            <div
+                              className="absolute cursor-pointer rounded-md"
+                              style={{
+                                left: leftPx,
+                                top: (ROW_HEIGHT - BAR_HEIGHT) / 2,
+                                width,
+                                height: BAR_HEIGHT / 2,
+                                backgroundColor: prodColor,
+                                opacity: 0.85,
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onOrderClick?.(order);
+                              }}
+                              onMouseMove={(e) => {
+                                setHoveredTask(`order-${order.id}`);
+                                setTooltipPos({ x: e.clientX, y: e.clientY });
+                              }}
+                              onMouseLeave={handleBarMouseLeave}
+                            >
+                              <span
+                                className="absolute inset-0 flex items-center px-1 text-[9px] font-medium text-white truncate"
+                                style={{ textShadow: "0 1px 2px rgba(0,0,0,0.3)" }}
+                              >
+                                {width > 60 ? "Production" : ""}
+                              </span>
+                            </div>
+                          );
+                        })()}
+                        {/* Delivery bar */}
+                        {delStart && delEnd && (() => {
+                          const leftPx = daysBetween(rangeStart, delStart) * DAY_WIDTH;
+                          const rightPx = (daysBetween(rangeStart, delEnd) + 1) * DAY_WIDTH;
+                          const width = Math.max(rightPx - leftPx, DAY_WIDTH);
+                          return (
+                            <div
+                              className="absolute cursor-pointer rounded-md"
+                              style={{
+                                left: leftPx,
+                                top: (ROW_HEIGHT - BAR_HEIGHT) / 2 + BAR_HEIGHT / 2,
+                                width,
+                                height: BAR_HEIGHT / 2,
+                                backgroundColor: delColor,
+                                opacity: 0.85,
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onOrderClick?.(order);
+                              }}
+                              onMouseMove={(e) => {
+                                setHoveredTask(`order-${order.id}`);
+                                setTooltipPos({ x: e.clientX, y: e.clientY });
+                              }}
+                              onMouseLeave={handleBarMouseLeave}
+                            >
+                              <span
+                                className="absolute inset-0 flex items-center px-1 text-[9px] font-medium text-white truncate"
+                                style={{ textShadow: "0 1px 2px rgba(0,0,0,0.3)" }}
+                              >
+                                {width > 60 ? "Delivery" : ""}
+                              </span>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    );
+                  }
+
+                  // ── Task bar rendering ───────────────────────────
+                  const task = (row as { type: "task" | "undated-task"; task: PMTaskData }).task;
 
                   if (row.type === "undated-task") {
                     // No bar for undated tasks
@@ -735,7 +919,7 @@ export function TimelineView({
         </div>
       </div>
 
-      {/* Tooltip */}
+      {/* Task Tooltip */}
       {hoveredTaskData && !dragState && (
         <div
           className="pointer-events-none fixed z-50 max-w-xs rounded-lg border border-border bg-elevated px-3 py-2 shadow-lg"
@@ -778,6 +962,45 @@ export function TimelineView({
                 <span>{formatDate(hoveredTaskData.dueDate, "medium")}</span>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Order Tooltip */}
+      {hoveredOrderData && !dragState && (
+        <div
+          className="pointer-events-none fixed z-50 max-w-xs rounded-lg border border-border bg-elevated px-3 py-2 shadow-lg"
+          style={{
+            left: tooltipPos.x + 12,
+            top: tooltipPos.y + 12,
+          }}
+        >
+          <p className="text-xs font-semibold text-foreground truncate">
+            Order {hoveredOrderData.orderNumber}
+          </p>
+          <div className="mt-1 flex flex-col gap-0.5">
+            <div className="flex items-center gap-2 text-2xs text-muted-foreground">
+              <span>Status:</span>
+              <span className="font-medium text-amber-400">{hoveredOrderData.status}</span>
+            </div>
+            <div className="flex items-center gap-2 text-2xs text-muted-foreground">
+              <span>Supplier:</span>
+              <span className="truncate">{hoveredOrderData.supplier}</span>
+            </div>
+            <div className="flex items-center gap-2 text-2xs text-muted-foreground">
+              <span>Ordered:</span>
+              <span>{formatDate(hoveredOrderData.orderDate, "medium")}</span>
+            </div>
+            {hoveredOrderData.actDeliveryDate && (
+              <div className="flex items-center gap-2 text-2xs text-muted-foreground">
+                <span>Delivered:</span>
+                <span>{formatDate(hoveredOrderData.actDeliveryDate, "medium")}</span>
+              </div>
+            )}
+            <div className="flex items-center gap-2 text-2xs text-muted-foreground">
+              <span>Units:</span>
+              <span>{hoveredOrderData.lineItems.reduce((s: number, it: SupplierOrderItem) => s + it.quantity, 0).toLocaleString()}</span>
+            </div>
           </div>
         </div>
       )}
