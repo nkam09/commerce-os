@@ -742,7 +742,7 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
             ) : viewMode === "calendar" ? (
               <CalendarView
                 tasks={[]}
-                orders={ordersForCurrentList}
+                orders={ordersForSelectedSpace}
                 onTaskClick={handleTaskClick}
                 onTaskUpdate={handleTaskUpdate}
                 onOrderClick={handleOrderClick}
@@ -750,7 +750,7 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
             ) : viewMode === "timeline" ? (
               <TimelineView
                 tasks={[]}
-                orders={ordersForCurrentList}
+                orders={ordersForSelectedSpace}
                 listNames={listNames}
                 onTaskClick={handleTaskClick}
                 onTaskUpdate={handleTaskUpdate}
@@ -799,7 +799,7 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
           ) : viewMode === "calendar" ? (
             <CalendarView
               tasks={tasksForList}
-              orders={ordersForCurrentList}
+              orders={ordersForSelectedSpace}
               onTaskClick={handleTaskClick}
               onTaskUpdate={handleTaskUpdate}
               onOrderClick={handleOrderClick}
@@ -807,7 +807,7 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
           ) : (
             <TimelineView
               tasks={tasksForList}
-              orders={ordersForCurrentList}
+              orders={ordersForSelectedSpace}
               listNames={listNames}
               onTaskClick={handleTaskClick}
               onTaskUpdate={handleTaskUpdate}
