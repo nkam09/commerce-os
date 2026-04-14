@@ -1,21 +1,30 @@
 /**
  * Sync Refund Events Job
  *
- * Fetches refund events from the SP-API Financial Events endpoint for
- * near-real-time refund detection (like Sellerboard).
+ * PRIMARY refund source. Fetches refund events from the SP-API Financial Events
+ * endpoint and attributes them by PostedDate (America/Los_Angeles) — the same
+ * convention Sellerboard uses.
  *
  * This job ONLY handles refunds — no fees, sales, or other financial data.
  *
- * Data hierarchy (provisional → authoritative):
- *   1. sync-returns         — FBA physical returns (provisional)
- *   2. sync-refund-events   — Financial Events refunds (provisional, more complete)
- *   3. sync-settlement-refunds — Settlement reports (authoritative, overwrites)
+ * Data hierarchy:
+ *   1. sync-refund-events     — PRIMARY (Financial Events API, near-real-time)
+ *   2. sync-settlement-refunds — AUTHORITATIVE (settlements, overwrites when they arrive)
  *
- * Provisional logic: only write refund data when the existing row has
- * refundCount = 0 (no settlement data yet). Once settlement data arrives
- * via sync-settlement-refunds, it overwrites with authoritative numbers.
+ * Write semantics: OVERWRITE. This job is the primary source, so every write
+ * replaces any previously written refund values for (productId, marketplace, date).
+ * Settlement refunds arrive later (~2 weeks) and overwrite again with authoritative
+ * dollar amounts.
  *
- * Cursor: ISO date string stored in SyncCursor(connectionId, "sync-refund-events").
+ * Field mapping (refund events use ADJUSTMENT variants):
+ *   event.ShipmentItemAdjustmentList[]
+ *     .SellerSKU                                       → sku
+ *     .QuantityShipped                                 → refundCount
+ *     .ItemChargeAdjustmentList[].ChargeType=Principal → refundAmount (abs)
+ *     .ItemFeeAdjustmentList[].FeeType=Commission      → refundCommission (abs)
+ *     .ItemFeeAdjustmentList[].FeeType=RefundCommission → refundedReferralFee (abs)
+ *
+ * Cursor: ISO date string in SyncCursor(connectionId, "sync-refund-events").
  * On first run, defaults to 7 days ago.
  */
 
@@ -30,122 +39,107 @@ import {
   failJobRun,
 } from "@/lib/sync/sync-orchestration-service";
 import type { JobContext, JobResult } from "@/lib/jobs/job-types";
-import type { SpFinancialEvents, SpShipmentItem } from "@/lib/amazon/sp-api-client";
+import type { SpFinancialEvents } from "@/lib/amazon/sp-api-client";
 
 const JOB_NAME = "sync-refund-events";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Convert ISO timestamp to UTC-date-only Date (no time component). */
-function toUtcDateOnly(isoString?: string): Date {
-  if (!isoString) return new Date(0);
-  const d = new Date(isoString);
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+/**
+ * Convert an ISO timestamp to a UTC-date-only Date representing the
+ * calendar date in America/Los_Angeles (same attribution as orders/Sellerboard).
+ */
+function toPacificDateOnly(isoString: string): Date {
+  const pacificStr = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(isoString));
+  const [y, m, d] = pacificStr.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
 }
 
-/**
- * Parsed refund row from a single refund event item.
- */
+type AdjustmentCharge = {
+  ChargeType?: string;
+  ChargeAmount?: { CurrencyCode?: string; CurrencyAmount?: number };
+};
+
+type AdjustmentFee = {
+  FeeType?: string;
+  FeeAmount?: { CurrencyCode?: string; CurrencyAmount?: number };
+};
+
+type ShipmentItemAdjustment = {
+  SellerSKU?: string;
+  ASIN?: string;
+  QuantityShipped?: number;
+  ItemChargeAdjustmentList?: AdjustmentCharge[];
+  ItemFeeAdjustmentList?: AdjustmentFee[];
+};
+
 type RefundItem = {
   asin: string | null;
   sku: string | null;
   marketplaceCode: string | null;
   date: Date;
   refundCount: number;       // units refunded (QuantityShipped)
-  refundAmount: number;      // absolute value of Principal charges
-  refundCommission: number;  // absolute value of Commission fee adjustments
-  refundedReferralFee: number; // absolute value of RefundCommission/ReferralFee fee adjustments
+  refundAmount: number;      // abs(Principal charges)
+  refundCommission: number;  // abs(Commission fee) — amount Amazon charges for refund
+  refundedReferralFee: number; // RefundCommission fee (positive) — referral fee returned
 };
 
 /**
  * Extract refund items from RefundEventList.
  *
- * Refund events use ADJUSTMENT variants of all field names:
- *   ShipmentItemList → ShipmentItemAdjustmentList
- *   ItemChargeList   → ItemChargeAdjustmentList
- *   ItemFeeList      → ItemFeeAdjustmentList
- * We try both variants for resilience.
- *
- * Extracts:
- * - refundAmount from charges where ChargeType = "Principal"
- * - refundCommission from fees where FeeType = "Commission"
- * - refundedReferralFee from fees where FeeType = "RefundCommission" or "ReferralFee"
+ * Refund events use ADJUSTMENT variants of all list names. Field meanings:
+ *   - Principal charges are negative (customer got money back) → take abs
+ *   - Commission fees are negative (Amazon charges for refund processing) → take abs
+ *   - RefundCommission fees are positive (referral fee returned to seller)
  */
 function extractRefundItems(
   events: SpFinancialEvents,
   fallbackMarketplaceCode: string
 ): RefundItem[] {
   const results: RefundItem[] = [];
-  let loggedFirstEvent = false;
 
   for (const event of events.RefundEventList ?? []) {
-    const date = toUtcDateOnly(event.PostedDate);
+    if (!event.PostedDate) continue;
+    const date = toPacificDateOnly(event.PostedDate);
+
+    const eventAny = event as Record<string, unknown>;
     const marketplaceCode =
-      (event as Record<string, unknown>)["MarketplaceId"] as string | null ??
+      (eventAny["MarketplaceId"] as string | undefined) ??
       fallbackMarketplaceCode;
 
-    // Refund events use ShipmentItemAdjustmentList; fall back to ShipmentItemList
-    const eventAny = event as Record<string, unknown>;
-    const items = (
-      (eventAny["ShipmentItemAdjustmentList"] as SpShipmentItem[] | undefined) ??
-      event.ShipmentItemList ??
-      []
-    );
-    const listSource = eventAny["ShipmentItemAdjustmentList"]
-      ? "AdjustmentList"
-      : event.ShipmentItemList
-        ? "ItemList"
-        : "EMPTY";
-
-    if (!loggedFirstEvent) {
-      loggedFirstEvent = true;
-      console.log(
-        `[sync-refund-events] event items: ${items.length} (from ${listSource})`
-      );
-      if (items.length > 0) {
-        console.log(
-          `[sync-refund-events] first item keys:`,
-          Object.keys(items[0]).join(", ")
-        );
-      }
-    }
+    const items =
+      (eventAny["ShipmentItemAdjustmentList"] as ShipmentItemAdjustment[] | undefined) ??
+      [];
 
     for (const item of items) {
-      const itemAny = item as Record<string, unknown>;
-      const asin = item.ASIN ?? (itemAny["ASIN"] as string | undefined) ?? null;
-      const sku = item.SellerSKU ?? (itemAny["SellerSKU"] as string | undefined) ?? null;
-      const qty = (itemAny["QuantityShipped"] as number | undefined) ?? 1;
+      const asin = item.ASIN ?? null;
+      const sku = item.SellerSKU ?? null;
+      const qty = item.QuantityShipped ?? 1;
 
       let refundAmount = 0;
       let refundCommission = 0;
       let refundedReferralFee = 0;
 
-      // Charges: try ItemChargeAdjustmentList first, then ItemChargeList
-      const charges = (
-        (itemAny["ItemChargeAdjustmentList"] as typeof item.ItemChargeList) ??
-        item.ItemChargeList ??
-        []
-      );
-      for (const charge of charges) {
+      for (const charge of item.ItemChargeAdjustmentList ?? []) {
         if (charge.ChargeType === "Principal") {
-          // Refund amounts are negative from Amazon; store as positive
-          refundAmount += Math.abs(charge.ChargeAmount.CurrencyAmount ?? 0);
+          refundAmount += Math.abs(charge.ChargeAmount?.CurrencyAmount ?? 0);
         }
       }
 
-      // Fees: try ItemFeeAdjustmentList first, then ItemFeeList
-      const fees = (
-        (itemAny["ItemFeeAdjustmentList"] as typeof item.ItemFeeList) ??
-        item.ItemFeeList ??
-        []
-      );
-      for (const fee of fees) {
+      for (const fee of item.ItemFeeAdjustmentList ?? []) {
         const feeType = fee.FeeType ?? "";
-        const amount = Math.abs(fee.FeeAmount.CurrencyAmount ?? 0);
+        const amount = fee.FeeAmount?.CurrencyAmount ?? 0;
 
         if (feeType === "Commission") {
-          refundCommission += amount;
-        } else if (feeType === "RefundCommission" || feeType === "ReferralFee") {
+          // Commission is charged for the refund — negative → abs
+          refundCommission += Math.abs(amount);
+        } else if (feeType === "RefundCommission") {
+          // RefundCommission is the referral fee returned — positive already
           refundedReferralFee += amount;
         }
       }
@@ -168,7 +162,7 @@ function extractRefundItems(
 
 // ─── Aggregation ─────────────────────────────────────────────────────────────
 
-type AggKey = string; // `${asin}::${sku}::${marketplaceCode}::${dateStr}`
+type AggKey = string;
 
 type AggRefundRow = {
   asin: string;
@@ -181,7 +175,6 @@ type AggRefundRow = {
   refundedReferralFee: number;
 };
 
-/** Aggregate items by (asin, marketplace, date). */
 function aggregateRefundItems(items: RefundItem[]): AggRefundRow[] {
   const agg = new Map<AggKey, AggRefundRow>();
 
@@ -233,14 +226,11 @@ export async function syncRefundEventsJob(ctx: JobContext): Promise<JobResult> {
 
     let totalFetched = 0;
     let totalWritten = 0;
-    let totalSkippedSettlement = 0;
     let totalSkippedUnknown = 0;
     let nextToken: string | undefined;
-    let loggedSample = false;
     const newCursor = new Date().toISOString();
 
     // ── Phase 1: Fetch all pages of financial events ─────────────────────
-
     const allRefundItems: RefundItem[] = [];
 
     do {
@@ -252,49 +242,9 @@ export async function syncRefundEventsJob(ctx: JobContext): Promise<JobResult> {
       const events = page.FinancialEvents;
       nextToken = page.NextToken;
 
-      // Debug: log response structure and first refund event
-      if (!loggedSample) {
-        console.log(
-          "[sync-refund-events] FinancialEvents keys:",
-          Object.keys(events)
-        );
-        const refundEvents = events.RefundEventList ?? [];
-        if (refundEvents.length > 0) {
-          console.log(
-            "[sync-refund-events] sample refund event:",
-            JSON.stringify(refundEvents[0])
-          );
-          // Also log item-level keys if present
-          const firstItems =
-            refundEvents[0].ShipmentItemList ??
-            (refundEvents[0] as Record<string, unknown>)[
-              "ShipmentItemAdjustmentList"
-            ];
-          console.log(
-            "[sync-refund-events] first event item list key:",
-            refundEvents[0].ShipmentItemList
-              ? "ShipmentItemList"
-              : (refundEvents[0] as Record<string, unknown>)[
-                  "ShipmentItemAdjustmentList"
-                ]
-              ? "ShipmentItemAdjustmentList"
-              : "NEITHER — event keys: " +
-                Object.keys(refundEvents[0]).join(", ")
-          );
-        }
-        if (events.ShipmentEventList) {
-          console.log(
-            "[sync-refund-events] ShipmentEventList count:",
-            events.ShipmentEventList.length
-          );
-        }
-        loggedSample = true;
-      }
-
       const refundEventCount = (events.RefundEventList ?? []).length;
       totalFetched += refundEventCount;
 
-      // Extract refund items only — ignore everything else
       const items = extractRefundItems(events, ctx.marketplace.code);
       allRefundItems.push(...items);
 
@@ -307,8 +257,7 @@ export async function syncRefundEventsJob(ctx: JobContext): Promise<JobResult> {
       `[sync-refund-events] total: ${totalFetched} refund events, ${allRefundItems.length} line items`
     );
 
-    // ── Phase 2: Aggregate and write ─────────────────────────────────────
-
+    // ── Phase 2: Aggregate and OVERWRITE ─────────────────────────────────
     const aggregated = aggregateRefundItems(allRefundItems);
 
     for (const row of aggregated) {
@@ -332,26 +281,8 @@ export async function syncRefundEventsJob(ctx: JobContext): Promise<JobResult> {
         continue;
       }
 
-      // ── Provisional check: only write if settlement hasn't arrived ────
-      // Look up the existing row; if refundCount > 0, settlement data
-      // (from sync-settlement-refunds) is already present — skip.
-      const existing = await prisma.dailySale.findUnique({
-        where: {
-          productId_marketplaceId_date: {
-            productId,
-            marketplaceId,
-            date: row.date,
-          },
-        },
-        select: { refundCount: true },
-      });
-
-      if (existing && existing.refundCount > 0) {
-        totalSkippedSettlement++;
-        continue;
-      }
-
-      // Upsert provisional refund data
+      // OVERWRITE semantics: refund-events is the primary source. Always write.
+      // Settlement refunds will overwrite this data later when settlements arrive.
       await prisma.dailySale.upsert({
         where: {
           productId_marketplaceId_date: {
@@ -380,12 +311,17 @@ export async function syncRefundEventsJob(ctx: JobContext): Promise<JobResult> {
         },
       });
 
+      console.log(
+        `[sync-refund-events] wrote date=${row.date.toISOString().slice(0, 10)} ` +
+          `asin=${row.asin} count=${row.refundCount} amount=${row.refundAmount.toFixed(2)} ` +
+          `source=financial-events`
+      );
+
       totalWritten++;
     }
 
     console.log(
       `[sync-refund-events] results: ${totalWritten} written, ` +
-        `${totalSkippedSettlement} skipped (settlement exists), ` +
         `${totalSkippedUnknown} skipped (unknown ASIN/marketplace)`
     );
 
@@ -399,7 +335,7 @@ export async function syncRefundEventsJob(ctx: JobContext): Promise<JobResult> {
       fetchedCount: totalFetched,
       writtenCount: totalWritten,
       nextCursor: newCursor,
-      notes: `${totalSkippedSettlement} skipped (settlement exists)`,
+      notes: `overwrite semantics — primary refund source`,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

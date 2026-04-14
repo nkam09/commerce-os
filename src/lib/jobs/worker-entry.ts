@@ -12,14 +12,13 @@
  *   2. sync-finances   — build DailyFee
  *   3. sync-inventory  — build InventorySnapshot
  *   4. sync-ads        — build DailyAd
- *   5. sync-returns    — provisional refund counts from FBA returns data
- *   6. sync-refund-events — provisional refund data from Financial Events API (near-real-time)
- *   7. sync-settlement-refunds — authoritative refund data from settlement reports (overwrites)
- *   7. sync-health-refresh — update connection statuses
+ *   5. sync-refund-events     — PRIMARY refund source (Financial Events API, PostedDate)
+ *   6. sync-settlement-refunds — AUTHORITATIVE refund overwrite from settlement reports
+ *   7. sync-health-refresh    — update connection statuses
  *
- * Note: sync-returns provides provisional refund counts for dates not yet
- * covered by settlements. sync-settlement-refunds overwrites with
- * authoritative data when settlements arrive.
+ * Refund attribution: Uses PostedDate from Financial Events API (matches Sellerboard).
+ * sync-returns is DISABLED — its FBA return-initiated date is off by 1-3 days from
+ * Amazon's PostedDate and caused count mismatches.
  *
  * Catalog sync is excluded from the regular loop — run it separately on demand.
  *
@@ -53,12 +52,14 @@ async function runAllJobs(): Promise<void> {
     { name: "sync-inventory", fn: () => syncInventoryJob(ctx) },
     { name: "sync-ads-products", fn: () => syncAdsProductsJob(ctx) },
     { name: "sync-ads-keywords", fn: () => syncAdsKeywordsJob(ctx) },
-    // Refund data hierarchy (provisional → authoritative):
-    //   1. sync-returns          — FBA physical returns (provisional)
-    //   2. sync-refund-events    — Financial Events API refunds (provisional, near-real-time)
-    //   3. sync-settlement-refunds — Settlement reports (authoritative, overwrites)
-    { name: "sync-returns", fn: () => syncReturnsJob(ctx) },
-    // { name: "sync-refund-events", fn: () => syncRefundEventsJob(ctx) }, // DISABLED � date attribution issues
+    // Refund data hierarchy:
+    //   1. sync-refund-events    — PRIMARY refund source (Financial Events API, PostedDate attribution, near-real-time)
+    //   2. sync-settlement-refunds — AUTHORITATIVE overwrite when settlements arrive (~2 weeks lag)
+    //
+    // sync-returns is DISABLED — it attributes refunds by FBA return-initiated
+    // date which is off by 1-3 days from Amazon's PostedDate used by Sellerboard.
+    // { name: "sync-returns", fn: () => syncReturnsJob(ctx) }, // DISABLED — wrong date attribution
+    { name: "sync-refund-events", fn: () => syncRefundEventsJob(ctx) },
     { name: "sync-settlement-refunds", fn: () => syncSettlementRefundsJob(ctx) },
   ];
 
