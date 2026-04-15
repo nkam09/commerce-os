@@ -18,7 +18,15 @@ const HEADER_COLORS: Record<string, string> = {
 // ─── % change helpers ───────────────────────────────────────────────────────
 
 /** Metrics where LOWER values = improvement (green) */
-const LOWER_IS_BETTER = new Set(["acos", "tacos", "adSpend"]);
+const LOWER_IS_BETTER = new Set([
+  "acos",
+  "tacos",
+  "adSpend",
+  "refundCount",
+  "refundAmount",
+  "promoAmount",
+  "indirectExpenses",
+]);
 
 /** Compute % change, returns null if base is 0 or missing */
 function pctChange(current: number | null | undefined, base: number | null | undefined): number | null {
@@ -76,6 +84,7 @@ export function PeriodSummaryCard({ period, comparisonPeriod, className }: Perio
 
   // Shorthand for comparison — only render badges when a comparison period exists
   const cp = comparisonPeriod ?? null;
+  const cpEstPayout = cp ? cp.netRevenue - cp.totalFees : null;
 
   return (
     <div
@@ -132,6 +141,9 @@ export function PeriodSummaryCard({ period, comparisonPeriod, className }: Perio
               : "$0.00"
           }
           valueClassName={period.refundCount > 0 ? "text-warning" : undefined}
+          badge={cp && (
+            <ChangeBadge current={period.refundCount} base={cp.refundCount} metricKey="refundCount" />
+          )}
         />
 
         {/* Promo */}
@@ -140,6 +152,9 @@ export function PeriodSummaryCard({ period, comparisonPeriod, className }: Perio
             label="Promo"
             value={`-${formatCurrency(period.promoAmount)}`}
             valueClassName="text-warning"
+            badge={cp && (
+              <ChangeBadge current={period.promoAmount} base={cp.promoAmount} metricKey="promoAmount" />
+            )}
           />
         )}
 
@@ -151,7 +166,13 @@ export function PeriodSummaryCard({ period, comparisonPeriod, className }: Perio
         />
 
         {/* Est payout */}
-        <MetricRow label="Est. payout" value={formatCurrency(estPayout)} />
+        <MetricRow
+          label="Est. payout"
+          value={formatCurrency(estPayout)}
+          badge={cp && (
+            <ChangeBadge current={estPayout} base={cpEstPayout} metricKey="estimatedPayout" />
+          )}
+        />
 
         {/* Gross Profit */}
         <MetricRow
@@ -167,6 +188,13 @@ export function PeriodSummaryCard({ period, comparisonPeriod, className }: Perio
             label="Indirect expenses"
             value={`-${formatCurrency(period.indirectExpenseTotal)}`}
             valueClassName="text-danger"
+            badge={cp && (
+              <ChangeBadge
+                current={period.indirectExpenseTotal}
+                base={cp.indirectExpenseTotal}
+                metricKey="indirectExpenses"
+              />
+            )}
           />
         )}
 
