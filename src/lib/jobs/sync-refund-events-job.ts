@@ -144,17 +144,9 @@ function extractRefundItems(
         }
       }
 
-      // Skip free replacements (      results.push({
-        asin,
-        sku,
-        marketplaceCode,
-        date,
-        refundCount: qty,
-        refundAmount,
-        refundCommission,
-        refundedReferralFee,
-      }); refund) — Sellerboard excludes these
+      // Skip free replacements ( refund) - Sellerboard excludes these
       if (refundAmount === 0) continue;
+
 
       results.push({
         asin,
