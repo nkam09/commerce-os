@@ -254,11 +254,13 @@ function buildPeriodDefs(combo: TilesCombo = "default"): PeriodDef[] {
 
 async function queryPeriodMetrics(
   userId: string,
-  period: PeriodDef
+  period: PeriodDef,
+  brand?: string
 ): Promise<PeriodMetrics> {
+  const productWhere = brand ? { userId, brand } : { userId };
   const [salesAgg, feesAgg, adsAgg, reimbAgg] = await Promise.all([
     prisma.dailySale.aggregate({
-      where: { product: { userId }, date: { gte: period.from, lte: period.to } },
+      where: { product: productWhere, date: { gte: period.from, lte: period.to } },
       _sum: {
         grossSales: true,
         unitsSold: true,
@@ -271,7 +273,7 @@ async function queryPeriodMetrics(
       },
     }),
     prisma.dailyFee.aggregate({
-      where: { product: { userId }, date: { gte: period.from, lte: period.to } },
+      where: { product: productWhere, date: { gte: period.from, lte: period.to } },
       _sum: {
         referralFee: true,
         fbaFee: true,
@@ -283,11 +285,11 @@ async function queryPeriodMetrics(
       },
     }),
     prisma.dailyAd.aggregate({
-      where: { product: { userId }, date: { gte: period.from, lte: period.to } },
+      where: { product: productWhere, date: { gte: period.from, lte: period.to } },
       _sum: { spend: true, attributedSales: true, impressions: true, clicks: true },
     }),
     prisma.reimbursement.aggregate({
-      where: { product: { userId }, reimburseDate: { gte: period.from, lte: period.to } },
+      where: { product: productWhere, reimburseDate: { gte: period.from, lte: period.to } },
       _sum: { amountTotal: true },
     }),
   ]);
@@ -327,7 +329,7 @@ async function queryPeriodMetrics(
   // COGS: Sum product-level COGS * units
   const cogsData = await prisma.dailySale.groupBy({
     by: ["productId"],
-    where: { product: { userId }, date: { gte: period.from, lte: period.to } },
+    where: { product: productWhere, date: { gte: period.from, lte: period.to } },
     _sum: { unitsSold: true },
   });
   let totalCogs = 0;
@@ -505,14 +507,21 @@ async function queryPeriodMetrics(
 export async function queryProductRows(
   userId: string,
   dateFrom?: Date,
-  dateTo?: Date
+  dateTo?: Date,
+  brand?: string
 ): Promise<ProductRow[]> {
   const start = dateFrom ?? daysAgo(30);
   const today = dateTo ?? todayUtc();
 
   // Get products with settings and latest inventory
+  const productWhere: { userId: string; status: { not: "ARCHIVED" }; brand?: string } = {
+    userId,
+    status: { not: "ARCHIVED" },
+  };
+  if (brand) productWhere.brand = brand;
+
   const products = await prisma.product.findMany({
-    where: { userId, status: { not: "ARCHIVED" } },
+    where: productWhere,
     select: {
       id: true,
       asin: true,
@@ -636,13 +645,13 @@ export async function queryProductRows(
 
 // ─── Public ─────────────────────────────────────────────────────────────────
 
-export async function getDashboardTilesData(userId: string, combo: TilesCombo = "default"): Promise<DashboardTilesData> {
+export async function getDashboardTilesData(userId: string, combo: TilesCombo = "default", brand?: string): Promise<DashboardTilesData> {
   const periodDefs = buildPeriodDefs(combo);
-  console.log(`[tiles-service] combo=${combo}, periods=${periodDefs.map(p => p.label).join(", ")}`);
+  console.log(`[tiles-service] combo=${combo}, brand=${brand ?? "all"}, periods=${periodDefs.map(p => p.label).join(", ")}`);
 
   const [periods, products] = await Promise.all([
-    Promise.all(periodDefs.map((pd) => queryPeriodMetrics(userId, pd))),
-    queryProductRows(userId),
+    Promise.all(periodDefs.map((pd) => queryPeriodMetrics(userId, pd, brand))),
+    queryProductRows(userId, undefined, undefined, brand),
   ]);
 
   return { periods, products };
@@ -656,7 +665,8 @@ export async function queryCustomPeriod(
   userId: string,
   from: Date,
   to: Date,
-  label: string
+  label: string,
+  brand?: string
 ): Promise<PeriodMetrics> {
   const periodDef: PeriodDef = {
     label,
@@ -664,6 +674,6 @@ export async function queryCustomPeriod(
     from,
     to,
   };
-  console.log(`[tiles-service] custom period: ${label} (${from.toISOString().slice(0,10)} to ${to.toISOString().slice(0,10)})`);
-  return queryPeriodMetrics(userId, periodDef);
+  console.log(`[tiles-service] custom period: ${label} (${from.toISOString().slice(0,10)} to ${to.toISOString().slice(0,10)}) brand=${brand ?? "all"}`);
+  return queryPeriodMetrics(userId, periodDef, brand);
 }

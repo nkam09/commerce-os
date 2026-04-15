@@ -7,6 +7,7 @@ import { AIInsightBanner } from "@/components/pages/dashboard/ai-insight-banner"
 import { InventorySummaryCards } from "./inventory-summary-cards";
 import { InventoryTable } from "./inventory-table";
 import type { InventoryPlannerData } from "@/lib/services/inventory-service";
+import { useBrandParam } from "@/lib/stores/brand-store";
 
 function LoadingSkeleton() {
   return (
@@ -24,8 +25,9 @@ function LoadingSkeleton() {
 }
 
 export function InventoryPlanner() {
+  const bp = useBrandParam();
   const { data, isLoading, isError, error, refetch } =
-    useApiData<InventoryPlannerData>("/api/inventory/planner");
+    useApiData<InventoryPlannerData>(`/api/inventory/planner?_=1${bp}`);
 
   const [stockType, setStockType] = useState("all");
   const [fulfillment, setFulfillment] = useState("all");

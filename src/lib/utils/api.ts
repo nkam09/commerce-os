@@ -35,6 +35,15 @@ export function apiServerError(err: unknown): NextResponse<ApiError> {
 }
 
 /**
+ * Extract optional brand filter from search params.
+ * Returns undefined when brand is missing or "All Brands" (= no filter).
+ */
+export function parseBrand(sp: URLSearchParams): string | undefined {
+  const raw = sp.get("brand");
+  return raw && raw !== "All Brands" ? raw : undefined;
+}
+
+/**
  * Wraps an async route handler with standard error handling.
  */
 export function withErrorHandler<T>(

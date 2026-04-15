@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireUser } from "@/lib/auth/require-user";
 import { queryProductRows } from "@/lib/services/dashboard-tiles-service";
-import { apiSuccess, apiServerError, apiUnauthorized } from "@/lib/utils/api";
+import { apiSuccess, apiServerError, apiUnauthorized, parseBrand } from "@/lib/utils/api";
 
 /**
  * GET /api/dashboard/tiles/products?period=last_30&from=YYYY-MM-DD&to=YYYY-MM-DD
@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
     const period = req.nextUrl.searchParams.get("period") ?? "last_30";
     const fromParam = req.nextUrl.searchParams.get("from");
     const toParam = req.nextUrl.searchParams.get("to");
+    const brand = parseBrand(req.nextUrl.searchParams);
 
     // Parse dates — fall back to last 30 days if missing/invalid
     let dateFrom: Date | undefined;
@@ -34,7 +35,7 @@ export async function GET(req: NextRequest) {
       "to:", dateTo?.toISOString().slice(0, 10) ?? "default");
 
     // Query products with the specified date range
-    const serviceRows = await queryProductRows(userId, dateFrom, dateTo);
+    const serviceRows = await queryProductRows(userId, dateFrom, dateTo, brand);
 
     console.log("[tiles/products] service returned", serviceRows.length, "products",
       "sample:", serviceRows[0] ? { asin: serviceRows[0].asin, grossSales: serviceRows[0].grossSales, units: serviceRows[0].unitsSold } : "none");

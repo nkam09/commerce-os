@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireUser } from "@/lib/auth/require-user";
 import { getTrendsViewData } from "@/lib/services/dashboard-trends-service";
-import { apiSuccess, apiServerError, apiUnauthorized } from "@/lib/utils/api";
+import { apiSuccess, apiServerError, apiUnauthorized, parseBrand } from "@/lib/utils/api";
 
 export async function GET(req: NextRequest) {
   try {
@@ -13,7 +13,8 @@ export async function GET(req: NextRequest) {
 
     console.log("[trends-data] userId:", userId, "range:", range, "metric:", metric, "from:", from, "to:", to);
 
-    const data = await getTrendsViewData(userId);
+    const brand = parseBrand(req.nextUrl.searchParams);
+    const data = await getTrendsViewData(userId, brand);
 
     console.log("[trends-data] monthly count:", data?.monthly?.length ?? 0);
     return apiSuccess(data);

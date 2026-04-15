@@ -12,6 +12,7 @@ import { DateRangeDropdown } from "@/components/ui/date-range-dropdown";
 import { ProductPerformanceTable } from "./product-performance-table";
 import type { ChartViewData } from "@/lib/services/dashboard-chart-service";
 import type { ProductRow } from "@/lib/services/dashboard-tiles-service";
+import { useBrandParam } from "@/lib/stores/brand-store";
 
 // â”€â”€â”€ Time range options â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -203,6 +204,7 @@ export function ChartView() {
   const [customFrom, setCustomFrom] = useState<Date | null>(null);
   const [customTo, setCustomTo] = useState<Date | null>(null);
   const [datePreset, setDatePreset] = useState<string>("30d");
+  const bp = useBrandParam();
 
   // Compute API dates from local state
   const { from: dateFrom, to: dateTo } = useMemo(() => {
@@ -212,14 +214,14 @@ export function ChartView() {
     return computeChartDates(timeRange);
   }, [timeRange, customFrom, customTo]);
 
-  const chartUrl = `/api/dashboard/chart-data?range=${timeRange}&from=${dateFrom}&to=${dateTo}`;
+  const chartUrl = `/api/dashboard/chart-data?range=${timeRange}&from=${dateFrom}&to=${dateTo}${bp}`;
   const { data, isLoading, isError, error, refetch } =
     useApiData<ChartViewData>(chartUrl);
 
   const tilesQuery = useApiData<{
     periods: Array<Record<string, number>>;
     products: ProductRow[];
-  }>(`/api/dashboard/tiles?from=${dateFrom}&to=${dateTo}`);
+  }>(`/api/dashboard/tiles?from=${dateFrom}&to=${dateTo}${bp}`);
 
   if (isLoading) {
     return (

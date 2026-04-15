@@ -120,7 +120,8 @@ function computeSummaryCards(products: InventoryProductRow[]): InventorySummaryC
 // ─── Main Query ──────────────────────────────────────────────────────────────
 
 export async function getInventoryPlannerData(
-  userId: string
+  userId: string,
+  brand?: string
 ): Promise<InventoryPlannerData> {
   const today = todayUtc();
   const velocityStart = daysAgo(VELOCITY_WINDOW_DAYS);
@@ -128,7 +129,7 @@ export async function getInventoryPlannerData(
 
   // 1. Fetch all active products for this user with settings
   const products = await prisma.product.findMany({
-    where: { userId, status: "ACTIVE" },
+    where: { userId, status: "ACTIVE", ...(brand ? { brand } : {}) },
     include: { setting: true },
   });
 

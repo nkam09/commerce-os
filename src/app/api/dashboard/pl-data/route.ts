@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireUser } from "@/lib/auth/require-user";
 import { getPLColumnsData, type PLGranularity } from "@/lib/services/dashboard-pl-service";
-import { apiSuccess, apiServerError, apiUnauthorized } from "@/lib/utils/api";
+import { apiSuccess, apiServerError, apiUnauthorized, parseBrand } from "@/lib/utils/api";
 
 const VALID_GRANULARITIES = new Set(["daily", "weekly", "monthly"]);
 
@@ -17,7 +17,8 @@ export async function GET(req: NextRequest) {
 
     console.log("[pl-data] userId:", userId, "granularity:", granularity, "from:", from, "to:", to);
 
-    const data = await getPLColumnsData(userId, granularity, from, to);
+    const brand = parseBrand(req.nextUrl.searchParams);
+    const data = await getPLColumnsData(userId, granularity, from, to, brand);
 
     console.log("[pl-data] returned", data.columns.length, "columns");
     return apiSuccess(data);

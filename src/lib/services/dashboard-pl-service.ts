@@ -371,6 +371,7 @@ export async function getPLColumnsData(
   granularity: PLGranularity = "monthly",
   fromStr?: string,
   toStr?: string,
+  brand?: string,
 ): Promise<PLColumnsResponse> {
   const today = fromStr && toStr ? new Date(toStr + "T23:59:59Z") : todayUtc();
   let start: Date;
@@ -388,7 +389,7 @@ export async function getPLColumnsData(
   }
 
   const productList = await prisma.product.findMany({
-    where: { userId, status: { not: "ARCHIVED" } },
+    where: { userId, status: { not: "ARCHIVED" }, ...(brand ? { brand } : {}) },
     select: { id: true },
   });
 

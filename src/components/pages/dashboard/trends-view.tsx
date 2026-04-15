@@ -17,6 +17,7 @@ import { TrendsMonthlyTotals } from "@/components/pages/dashboard/trends-monthly
 import type { TrendsViewData } from "@/lib/services/dashboard-trends-service";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { pacificDateStr, subDays, parseYearMonth, toISODate } from "@/lib/utils/pacific-date";
+import { useBrandParam } from "@/lib/stores/brand-store";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -372,7 +373,8 @@ export function TrendsView() {
     return computeTrendsDates(timeRange);
   }, [timeRange, customFrom, customTo]);
 
-  const trendsUrl = `/api/dashboard/trends-data?range=${timeRange}&granularity=${granularity}&metric=${selectedMetric.key}&from=${dateFrom}&to=${dateTo}`;
+  const bp = useBrandParam();
+  const trendsUrl = `/api/dashboard/trends-data?range=${timeRange}&granularity=${granularity}&metric=${selectedMetric.key}&from=${dateFrom}&to=${dateTo}${bp}`;
   const { data, isLoading, isError, error, refetch } =
     useApiData<TrendsViewData>(trendsUrl);
 

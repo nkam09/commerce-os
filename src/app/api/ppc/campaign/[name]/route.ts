@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireUser } from "@/lib/auth/require-user";
 import { getCampaignDetail } from "@/lib/services/ppc-service";
-import { apiSuccess, apiServerError, apiUnauthorized } from "@/lib/utils/api";
+import { apiSuccess, apiServerError, apiUnauthorized, parseBrand } from "@/lib/utils/api";
 
 /**
  * GET /api/ppc/campaign/:name?from=YYYY-MM-DD&to=YYYY-MM-DD
@@ -29,7 +29,8 @@ export async function GET(
 
     console.log(`[ppc/campaign] detail for "${campaignName.slice(0, 40)}" | from=${dateFrom.toISOString().slice(0, 10)} to=${dateTo.toISOString().slice(0, 10)}`);
 
-    const detail = await getCampaignDetail(userId, campaignName, dateFrom, dateTo);
+    const brand = parseBrand(sp);
+    const detail = await getCampaignDetail(userId, campaignName, dateFrom, dateTo, brand);
     return apiSuccess(detail);
   } catch (err) {
     if (err instanceof Error && err.message === "Unauthorized") return apiUnauthorized();

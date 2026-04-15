@@ -22,6 +22,7 @@ import type {
   KeywordDetail,
   KeywordDetailRow,
 } from "@/lib/services/keyword-service";
+import { useBrandStore } from "@/lib/stores/brand-store";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -448,10 +449,12 @@ function KeywordDetailPanel({
   to: string;
   onClose: () => void;
 }) {
+  const brand = useBrandStore((s) => s.selectedBrand);
   const { data, isLoading, isError } = useQuery<KeywordDetail>({
-    queryKey: ["keyword-detail", keywordText, matchType, from, to],
+    queryKey: ["keyword-detail", keywordText, matchType, from, to, brand],
     queryFn: async () => {
       const params = new URLSearchParams({ keyword: keywordText, matchType, from, to });
+      if (brand && brand !== "All Brands") params.set("brand", brand);
       const res = await fetch(`/api/keywords/detail?${params}`);
       const json = await res.json();
       if (!json.ok) throw new Error(json.error ?? "Failed to load detail");
@@ -583,6 +586,8 @@ export function KeywordsPageV2() {
   const [filters, setFilters] = useState<KeywordFilters>({ ...DEFAULT_FILTERS });
   const [showFilters, setShowFilters] = useState(false);
   const [detailKeyword, setDetailKeyword] = useState<{ text: string; match: string } | null>(null);
+  const selectedBrand = useBrandStore((s) => s.selectedBrand);
+  const brandVal = selectedBrand !== "All Brands" ? selectedBrand : undefined;
 
   const { from, to } = useMemo(() => {
     if (datePreset === "custom" && customFrom && customTo) {
@@ -601,8 +606,9 @@ export function KeywordsPageV2() {
     if (filters.matchType !== "all") p.set("matchType", filters.matchType);
     if (filters.minSpend) p.set("minSpend", filters.minSpend);
     if (filters.maxAcos) p.set("maxAcos", filters.maxAcos);
+    if (brandVal) p.set("brand", brandVal);
     return p.toString();
-  }, [from, to, activeTab, filters]);
+  }, [from, to, activeTab, filters, brandVal]);
 
   const { data, isLoading, isError, error, refetch } = useQuery<KeywordsApiResponse>({
     queryKey: ["keywords", filterParams],

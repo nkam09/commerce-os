@@ -5,7 +5,7 @@ import {
   getKeywordRows,
   getSearchTermRows,
 } from "@/lib/services/keyword-service";
-import { apiSuccess, apiServerError, apiUnauthorized } from "@/lib/utils/api";
+import { apiSuccess, apiServerError, apiUnauthorized, parseBrand } from "@/lib/utils/api";
 
 export async function GET(req: NextRequest) {
   try {
@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
     const matchType = sp.get("matchType") ?? undefined;
     const minSpend = sp.get("minSpend") ? Number(sp.get("minSpend")) : undefined;
     const maxAcos = sp.get("maxAcos") ? Number(sp.get("maxAcos")) : undefined;
+    const brand = parseBrand(sp);
 
     // Default dates: last 30 days
     const now = new Date();
@@ -29,12 +30,12 @@ export async function GET(req: NextRequest) {
 
     console.log("[keywords-api] params:", { tab, from: dateFrom.toISOString().slice(0, 10), to: dateTo.toISOString().slice(0, 10), search, matchType, minSpend, maxAcos });
 
-    const summary = await getKeywordSummary(userId, dateFrom, dateTo);
+    const summary = await getKeywordSummary(userId, dateFrom, dateTo, brand);
 
     const rows =
       tab === "searchterms"
-        ? await getSearchTermRows(userId, dateFrom, dateTo, { search, minSpend })
-        : await getKeywordRows(userId, dateFrom, dateTo, { search, matchType, minSpend, maxAcos });
+        ? await getSearchTermRows(userId, dateFrom, dateTo, { search, minSpend }, brand)
+        : await getKeywordRows(userId, dateFrom, dateTo, { search, matchType, minSpend, maxAcos }, brand);
 
     console.log("[keywords-api] result:", { summarySpend: summary.totalSpend, rowCount: rows.length });
 

@@ -67,9 +67,9 @@ function div(a: number, b: number): number | null {
 }
 
 /** Get product IDs for a user (to filter daily_ads which has no userId) */
-async function getProductIds(userId: string): Promise<string[]> {
+async function getProductIds(userId: string, brand?: string): Promise<string[]> {
   const products = await prisma.product.findMany({
-    where: { userId, status: { not: "ARCHIVED" } },
+    where: { userId, status: { not: "ARCHIVED" }, ...(brand ? { brand } : {}) },
     select: { id: true },
   });
   return products.map((p) => p.id);
@@ -80,9 +80,10 @@ async function getProductIds(userId: string): Promise<string[]> {
 export async function getPPCSummary(
   userId: string,
   dateFrom: Date,
-  dateTo: Date
+  dateTo: Date,
+  brand?: string
 ): Promise<PPCSummaryMetrics> {
-  const productIds = await getProductIds(userId);
+  const productIds = await getProductIds(userId, brand);
   if (productIds.length === 0) {
     console.log(`[ppc] getPPCSummary: no products for user ${userId}`);
     return { ppcSales: 0, adSpend: 0, acos: null, tacos: null, profit: 0, impressions: 0, clicks: 0, cpc: null, ctr: null, orders: 0, conversionRate: null, roas: null };
@@ -129,9 +130,10 @@ export async function getCampaignRows(
   userId: string,
   dateFrom: Date,
   dateTo: Date,
-  filters?: { status?: string; campaignType?: string; search?: string }
+  filters?: { status?: string; campaignType?: string; search?: string },
+  brand?: string
 ): Promise<CampaignRow[]> {
-  const productIds = await getProductIds(userId);
+  const productIds = await getProductIds(userId, brand);
   if (productIds.length === 0) return [];
 
   const rows = await prisma.dailyAd.groupBy({
@@ -193,9 +195,10 @@ export async function getPPCChartData(
   userId: string,
   dateFrom: Date,
   dateTo: Date,
-  granularity: "daily" | "weekly" | "monthly" = "daily"
+  granularity: "daily" | "weekly" | "monthly" = "daily",
+  brand?: string
 ): Promise<PPCChartDataPoint[]> {
-  const productIds = await getProductIds(userId);
+  const productIds = await getProductIds(userId, brand);
   if (productIds.length === 0) return [];
 
   const rows = await prisma.dailyAd.groupBy({
@@ -301,10 +304,11 @@ export interface CampaignProductBreakdown {
 export async function getByProductRows(
   userId: string,
   dateFrom: Date,
-  dateTo: Date
+  dateTo: Date,
+  brand?: string
 ): Promise<ByProductRow[]> {
   const products = await prisma.product.findMany({
-    where: { userId, status: { not: "ARCHIVED" } },
+    where: { userId, status: { not: "ARCHIVED" }, ...(brand ? { brand } : {}) },
     select: { id: true, asin: true, title: true },
   });
   if (products.length === 0) return [];
@@ -356,9 +360,10 @@ export async function getByProductRows(
 // ─── getAllPeriodsRows ───────────────────────────────────────────────────────
 
 export async function getAllPeriodsRows(
-  userId: string
+  userId: string,
+  brand?: string
 ): Promise<CampaignRow[]> {
-  const productIds = await getProductIds(userId);
+  const productIds = await getProductIds(userId, brand);
   if (productIds.length === 0) return [];
 
   const rows = await prisma.dailyAd.groupBy({
@@ -400,10 +405,11 @@ export async function getCampaignProductBreakdown(
   userId: string,
   campaignName: string,
   dateFrom: Date,
-  dateTo: Date
+  dateTo: Date,
+  brand?: string
 ): Promise<CampaignProductBreakdown[]> {
   const products = await prisma.product.findMany({
-    where: { userId, status: { not: "ARCHIVED" } },
+    where: { userId, status: { not: "ARCHIVED" }, ...(brand ? { brand } : {}) },
     select: { id: true, asin: true, title: true },
   });
   const productIds = products.map((p) => p.id);
@@ -456,10 +462,11 @@ export async function getCampaignDetail(
   userId: string,
   campaignName: string,
   dateFrom: Date,
-  dateTo: Date
+  dateTo: Date,
+  brand?: string
 ): Promise<CampaignDetail> {
   const products = await prisma.product.findMany({
-    where: { userId, status: { not: "ARCHIVED" } },
+    where: { userId, status: { not: "ARCHIVED" }, ...(brand ? { brand } : {}) },
     select: { id: true, asin: true, title: true },
   });
   const productIds = products.map((p) => p.id);

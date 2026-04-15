@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireUser } from "@/lib/auth/require-user";
 import { getDashboardTilesData, queryCustomPeriod, type TilesCombo } from "@/lib/services/dashboard-tiles-service";
-import { apiSuccess, apiServerError, apiUnauthorized } from "@/lib/utils/api";
+import { apiSuccess, apiServerError, apiUnauthorized, parseBrand } from "@/lib/utils/api";
 
 const VALID_COMBOS = new Set(["default", "days", "weeks", "months", "quarters"]);
 
@@ -12,6 +12,7 @@ export async function GET(req: NextRequest) {
     const combo: TilesCombo = VALID_COMBOS.has(raw) ? (raw as TilesCombo) : "default";
     const fromParam = req.nextUrl.searchParams.get("from");
     const toParam = req.nextUrl.searchParams.get("to");
+    const brand = parseBrand(req.nextUrl.searchParams);
 
     // If from/to are provided, return a single custom period
     if (fromParam && toParam) {
@@ -28,7 +29,7 @@ export async function GET(req: NextRequest) {
       const SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
       const label = `${SHORT[from.getUTCMonth()]} ${from.getUTCDate()} – ${SHORT[to.getUTCMonth()]} ${to.getUTCDate()}, ${to.getUTCFullYear()}`;
 
-      const period = await queryCustomPeriod(userId, from, to, label);
+      const period = await queryCustomPeriod(userId, from, to, label, brand);
 
       console.log("[tiles] custom period result:", {
         label: period.label,
@@ -42,7 +43,7 @@ export async function GET(req: NextRequest) {
 
     // Standard combo query
     console.log("[tiles] userId:", userId, "combo:", combo);
-    const data = await getDashboardTilesData(userId, combo);
+    const data = await getDashboardTilesData(userId, combo, brand);
     console.log("[tiles] returned", data.periods.length, "periods,", data.products.length, "products");
     return apiSuccess(data);
   } catch (err) {

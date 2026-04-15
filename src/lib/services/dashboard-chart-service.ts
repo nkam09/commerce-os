@@ -42,9 +42,10 @@ function monthsAgo(n: number): Date {
 
 // ─── Query ──────────────────────────────────────────────────────────────────
 
-export async function getChartViewData(userId: string): Promise<ChartViewData> {
+export async function getChartViewData(userId: string, brand?: string): Promise<ChartViewData> {
   const today = todayUtc();
   const start = monthsAgo(11); // 12 months back (including current month)
+  const productWhere = brand ? { userId, brand } : { userId };
 
   // ── Monthly aggregates via raw SQL for date_trunc ─────────────────────
   // We group by year-month using Prisma's raw query for date_trunc,
@@ -53,23 +54,23 @@ export async function getChartViewData(userId: string): Promise<ChartViewData> {
   const [salesByDate, feesByDate, adsByDate, cogsData] = await Promise.all([
     prisma.dailySale.groupBy({
       by: ["date"],
-      where: { product: { userId }, date: { gte: start, lte: today } },
+      where: { product: productWhere, date: { gte: start, lte: today } },
       _sum: { grossSales: true, unitsSold: true, refundAmount: true },
     }),
     prisma.dailyFee.groupBy({
       by: ["date"],
-      where: { product: { userId }, date: { gte: start, lte: today } },
+      where: { product: productWhere, date: { gte: start, lte: today } },
       _sum: { referralFee: true, fbaFee: true, storageFee: true, awdStorageFee: true, returnProcessingFee: true, otherFees: true, reimbursement: true },
     }),
     prisma.dailyAd.groupBy({
       by: ["date"],
-      where: { product: { userId }, date: { gte: start, lte: today } },
+      where: { product: productWhere, date: { gte: start, lte: today } },
       _sum: { spend: true, attributedSales: true },
     }),
     // Get COGS per product for the period
     prisma.dailySale.groupBy({
       by: ["productId", "date"],
-      where: { product: { userId }, date: { gte: start, lte: today } },
+      where: { product: productWhere, date: { gte: start, lte: today } },
       _sum: { unitsSold: true },
     }),
   ]);
@@ -182,7 +183,7 @@ export async function getChartViewData(userId: string): Promise<ChartViewData> {
 
   // ── Product performance (last 12 months aggregate) ────────────────────
 
-  const products = await queryProductPerformance(userId, start, today, cogsMap);
+  const products = await queryProductPerformance(userId, start, today, cogsMap, brand);
 
   return { monthly, products };
 }
@@ -193,10 +194,11 @@ async function queryProductPerformance(
   userId: string,
   start: Date,
   end: Date,
-  cogsMap: Map<string, number>
+  cogsMap: Map<string, number>,
+  brand?: string
 ): Promise<ProductPerformanceRow[]> {
   const productList = await prisma.product.findMany({
-    where: { userId, status: { not: "ARCHIVED" } },
+    where: { userId, status: { not: "ARCHIVED" }, ...(brand ? { brand } : {}) },
     select: { id: true, title: true, asin: true },
   });
 

@@ -27,6 +27,7 @@ import {
   ExportDropdown,
 } from "./table-controls";
 import { ProductSlideOver } from "./product-slideover";
+import { useBrandParam } from "@/lib/stores/brand-store";
 
 // ─── Date range presets ─────────────────────────────────────────────────────
 
@@ -129,9 +130,10 @@ export function ProductPerformanceTable({
   }, [datePreset, customFrom, customTo]);
 
   // ─── Data fetching ────────────────────────────────────────────────────────
+  const bp = useBrandParam();
   const productsUrl = dateRange
-    ? `/api/dashboard/tiles/products?period=${datePreset}&from=${dateRange.from}&to=${dateRange.to}`
-    : `/api/dashboard/tiles/products?period=${datePreset}`;
+    ? `/api/dashboard/tiles/products?period=${datePreset}&from=${dateRange.from}&to=${dateRange.to}${bp}`
+    : `/api/dashboard/tiles/products?period=${datePreset}${bp}`;
 
   console.log("[product-table] fetching data for:", { datePreset, ...dateRange });
 

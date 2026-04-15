@@ -51,30 +51,31 @@ function toMonthKey(date: Date): string {
 
 // ─── Query ──────────────────────────────────────────────────────────────────
 
-export async function getTrendsViewData(userId: string): Promise<TrendsViewData> {
+export async function getTrendsViewData(userId: string, brand?: string): Promise<TrendsViewData> {
   const today = todayUtc();
   const start = monthsAgo(5); // 6 months
+  const productWhere = brand ? { userId, brand } : { userId };
 
   // Fetch all daily data grouped by date
   const [salesByDate, feesByDate, adsByDate, cogsData] = await Promise.all([
     prisma.dailySale.groupBy({
       by: ["date"],
-      where: { product: { userId }, date: { gte: start, lte: today } },
+      where: { product: productWhere, date: { gte: start, lte: today } },
       _sum: { grossSales: true, unitsSold: true, orderCount: true, refundAmount: true },
     }),
     prisma.dailyFee.groupBy({
       by: ["date"],
-      where: { product: { userId }, date: { gte: start, lte: today } },
+      where: { product: productWhere, date: { gte: start, lte: today } },
       _sum: { referralFee: true, fbaFee: true, storageFee: true, awdStorageFee: true, returnProcessingFee: true, otherFees: true, reimbursement: true },
     }),
     prisma.dailyAd.groupBy({
       by: ["date"],
-      where: { product: { userId }, date: { gte: start, lte: today } },
+      where: { product: productWhere, date: { gte: start, lte: today } },
       _sum: { spend: true, attributedSales: true },
     }),
     prisma.dailySale.groupBy({
       by: ["productId", "date"],
-      where: { product: { userId }, date: { gte: start, lte: today } },
+      where: { product: productWhere, date: { gte: start, lte: today } },
       _sum: { unitsSold: true },
     }),
   ]);
@@ -190,17 +191,17 @@ export async function getTrendsViewData(userId: string): Promise<TrendsViewData>
   const [perProdSales, perProdFees, perProdAds] = await Promise.all([
     prisma.dailySale.groupBy({
       by: ["productId", "date"],
-      where: { product: { userId }, date: { gte: start, lte: today } },
+      where: { product: productWhere, date: { gte: start, lte: today } },
       _sum: { grossSales: true, unitsSold: true, orderCount: true, refundAmount: true },
     }),
     prisma.dailyFee.groupBy({
       by: ["productId", "date"],
-      where: { product: { userId }, date: { gte: start, lte: today } },
+      where: { product: productWhere, date: { gte: start, lte: today } },
       _sum: { referralFee: true, fbaFee: true, storageFee: true, awdStorageFee: true, returnProcessingFee: true, otherFees: true, reimbursement: true },
     }),
     prisma.dailyAd.groupBy({
       by: ["productId", "date"],
-      where: { product: { userId }, date: { gte: start, lte: today } },
+      where: { product: productWhere, date: { gte: start, lte: today } },
       _sum: { spend: true, attributedSales: true },
     }),
   ]);

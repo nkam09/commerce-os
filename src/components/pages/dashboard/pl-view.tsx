@@ -15,6 +15,7 @@ import type {
 } from "@/lib/services/dashboard-pl-service";
 import { DateRangeDropdown } from "@/components/ui/date-range-dropdown";
 import { pacificDateStr, subDays, toISODate } from "@/lib/utils/pacific-date";
+import { useBrandParam } from "@/lib/stores/brand-store";
 
 // ─── Row hierarchy definition ──────────────────────────────────────────────
 
@@ -275,7 +276,8 @@ export function PLView() {
     return computePLDates(plTimeRange);
   }, [plTimeRange, customFrom, customTo]);
 
-  const apiUrl = `/api/dashboard/pl-data?granularity=${granularity}&from=${dateFrom}&to=${dateTo}`;
+  const bp = useBrandParam();
+  const apiUrl = `/api/dashboard/pl-data?granularity=${granularity}&from=${dateFrom}&to=${dateTo}${bp}`;
 
   const { data, isLoading, isError, error, refetch } =
     useApiData<PLColumnsResponse>(apiUrl);

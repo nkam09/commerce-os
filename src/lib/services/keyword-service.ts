@@ -89,9 +89,9 @@ function div(a: number, b: number): number | null {
   return b > 0 ? Math.round((a / b) * 100) / 100 : null;
 }
 
-async function getProductIds(userId: string): Promise<string[]> {
+async function getProductIds(userId: string, brand?: string): Promise<string[]> {
   const products = await prisma.product.findMany({
-    where: { userId, status: { not: "ARCHIVED" } },
+    where: { userId, status: { not: "ARCHIVED" }, ...(brand ? { brand } : {}) },
     select: { id: true },
   });
   return products.map((p) => p.id);
@@ -102,9 +102,10 @@ async function getProductIds(userId: string): Promise<string[]> {
 export async function getKeywordSummary(
   userId: string,
   dateFrom: Date,
-  dateTo: Date
+  dateTo: Date,
+  brand?: string
 ): Promise<KeywordSummaryMetrics> {
-  const productIds = await getProductIds(userId);
+  const productIds = await getProductIds(userId, brand);
   if (productIds.length === 0) {
     return { totalSpend: 0, totalSales: 0, acos: null, clicks: 0, impressions: 0, orders: 0, cpc: null, ctr: null, roas: null, uniqueKeywords: 0, uniqueSearchTerms: 0 };
   }
@@ -145,9 +146,10 @@ export async function getKeywordRows(
   userId: string,
   dateFrom: Date,
   dateTo: Date,
-  filters?: { search?: string; matchType?: string; minSpend?: number; maxAcos?: number }
+  filters?: { search?: string; matchType?: string; minSpend?: number; maxAcos?: number },
+  brand?: string
 ): Promise<KeywordRow[]> {
-  const productIds = await getProductIds(userId);
+  const productIds = await getProductIds(userId, brand);
   if (productIds.length === 0) return [];
 
   const rows = await prisma.dailyKeyword.groupBy({
@@ -192,9 +194,10 @@ export async function getSearchTermRows(
   userId: string,
   dateFrom: Date,
   dateTo: Date,
-  filters?: { search?: string; minSpend?: number }
+  filters?: { search?: string; minSpend?: number },
+  brand?: string
 ): Promise<SearchTermRow[]> {
-  const productIds = await getProductIds(userId);
+  const productIds = await getProductIds(userId, brand);
   if (productIds.length === 0) return [];
 
   const rows = await prisma.dailySearchTerm.groupBy({
@@ -233,9 +236,10 @@ export async function getKeywordDetail(
   keywordText: string,
   matchType: string,
   dateFrom: Date,
-  dateTo: Date
+  dateTo: Date,
+  brand?: string
 ): Promise<KeywordDetail> {
-  const productIds = await getProductIds(userId);
+  const productIds = await getProductIds(userId, brand);
 
   const agg = await prisma.dailyKeyword.aggregate({
     where: { productId: { in: productIds }, keywordText, matchType, date: { gte: dateFrom, lte: dateTo } },

@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireUser } from "@/lib/auth/require-user";
 import { getChartViewData } from "@/lib/services/dashboard-chart-service";
-import { apiSuccess, apiServerError, apiUnauthorized } from "@/lib/utils/api";
+import { apiSuccess, apiServerError, apiUnauthorized, parseBrand } from "@/lib/utils/api";
 
 export async function GET(req: NextRequest) {
   try {
@@ -11,7 +11,8 @@ export async function GET(req: NextRequest) {
 
     console.log("[chart-data] userId:", userId, "from:", from, "to:", to);
 
-    const data = await getChartViewData(userId);
+    const brand = parseBrand(req.nextUrl.searchParams);
+    const data = await getChartViewData(userId, brand);
 
     console.log("[chart-data] months:", data.monthly?.length ?? 0, "products:", data.products?.length ?? 0);
     return apiSuccess(data);

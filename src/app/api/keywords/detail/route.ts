@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireUser } from "@/lib/auth/require-user";
 import { getKeywordDetail } from "@/lib/services/keyword-service";
-import { apiSuccess, apiError, apiServerError, apiUnauthorized } from "@/lib/utils/api";
+import { apiSuccess, apiError, apiServerError, apiUnauthorized, parseBrand } from "@/lib/utils/api";
 
 export async function GET(req: NextRequest) {
   try {
@@ -25,7 +25,8 @@ export async function GET(req: NextRequest) {
 
     console.log("[keywords-detail-api] params:", { keyword: keyword.slice(0, 30), matchType, from: dateFrom.toISOString().slice(0, 10), to: dateTo.toISOString().slice(0, 10) });
 
-    const detail = await getKeywordDetail(userId, keyword, matchType, dateFrom, dateTo);
+    const brand = parseBrand(sp);
+    const detail = await getKeywordDetail(userId, keyword, matchType, dateFrom, dateTo, brand);
 
     console.log("[keywords-detail-api] result:", { campaigns: detail.campaigns.length, spend: detail.totalSpend });
 

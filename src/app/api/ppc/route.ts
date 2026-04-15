@@ -8,7 +8,7 @@ import {
   getAllPeriodsRows,
   getCampaignProductBreakdown,
 } from "@/lib/services/ppc-service";
-import { apiSuccess, apiServerError, apiUnauthorized } from "@/lib/utils/api";
+import { apiSuccess, apiServerError, apiUnauthorized, parseBrand } from "@/lib/utils/api";
 
 /**
  * GET /api/ppc?from=YYYY-MM-DD&to=YYYY-MM-DD&tab=campaigns|byproduct|allperiods
@@ -28,6 +28,7 @@ export async function GET(req: NextRequest) {
     const search = sp.get("search") ?? "";
     const granularity = (sp.get("granularity") ?? "daily") as "daily" | "weekly" | "monthly";
     const expand = sp.get("expand"); // campaign name to get product breakdown
+    const brand = parseBrand(sp);
 
     // Parse dates — default to last 30 days
     const now = new Date();
@@ -42,15 +43,15 @@ export async function GET(req: NextRequest) {
 
     // Handle expansion request (product breakdown for a campaign)
     if (expand) {
-      const breakdown = await getCampaignProductBreakdown(userId, expand, dateFrom, dateTo);
+      const breakdown = await getCampaignProductBreakdown(userId, expand, dateFrom, dateTo, brand);
       console.log(`[ppc/api] Expansion for "${expand}": ${breakdown.length} products`);
       return apiSuccess({ breakdown });
     }
 
     // Always fetch summary + chart
     const [summary, chart] = await Promise.all([
-      getPPCSummary(userId, dateFrom, dateTo),
-      getPPCChartData(userId, dateFrom, dateTo, granularity),
+      getPPCSummary(userId, dateFrom, dateTo, brand),
+      getPPCChartData(userId, dateFrom, dateTo, granularity, brand),
     ]);
 
     // Tab-specific data
@@ -58,20 +59,20 @@ export async function GET(req: NextRequest) {
 
     switch (tab) {
       case "byproduct": {
-        const products = await getByProductRows(userId, dateFrom, dateTo);
+        const products = await getByProductRows(userId, dateFrom, dateTo, brand);
         tabData = { rows: products, totalCount: products.length };
         console.log(`[ppc/api] byproduct: ${products.length} products`);
         break;
       }
       case "allperiods": {
-        const rows = await getAllPeriodsRows(userId);
+        const rows = await getAllPeriodsRows(userId, brand);
         tabData = { rows, totalCount: rows.length };
         console.log(`[ppc/api] allperiods: ${rows.length} campaigns`);
         break;
       }
       case "campaigns":
       default: {
-        const campaigns = await getCampaignRows(userId, dateFrom, dateTo, { status, campaignType: type, search });
+        const campaigns = await getCampaignRows(userId, dateFrom, dateTo, { status, campaignType: type, search }, brand);
         tabData = { rows: campaigns, totalCount: campaigns.length };
         console.log(`[ppc/api] campaigns: ${campaigns.length} rows`);
         break;

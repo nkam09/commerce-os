@@ -16,6 +16,7 @@ import { PPCSummaryPanel } from "./ppc-summary-panel";
 import { PPCFilterPanel, DEFAULT_FILTERS, type PPCFilters } from "./ppc-filters";
 import { CampaignDetailPanel } from "./campaign-detail-panel";
 import type { PPCSummaryMetrics, CampaignRow, PPCChartDataPoint, ByProductRow, CampaignProductBreakdown } from "@/lib/services/ppc-service";
+import { useBrandStore } from "@/lib/stores/brand-store";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -123,10 +124,12 @@ interface PPCApiResponse {
 // ─── Expanded row sub-component ──────────────────────────────────────────────
 
 function CampaignExpansion({ campaignName, from, to }: { campaignName: string; from: string; to: string }) {
+  const brand = useBrandStore((s) => s.selectedBrand);
+  const brandSuffix = brand && brand !== "All Brands" ? `&brand=${encodeURIComponent(brand)}` : "";
   const { data, isLoading } = useQuery<{ breakdown: CampaignProductBreakdown[] }>({
-    queryKey: ["ppc-expand", campaignName, from, to],
+    queryKey: ["ppc-expand", campaignName, from, to, brand],
     queryFn: async () => {
-      const res = await fetch(`/api/ppc?expand=${encodeURIComponent(campaignName)}&from=${from}&to=${to}`);
+      const res = await fetch(`/api/ppc?expand=${encodeURIComponent(campaignName)}&from=${from}&to=${to}${brandSuffix}`);
       const json = await res.json();
       return json.data;
     },
@@ -173,6 +176,8 @@ export function PPCPage() {
   const [activeTab, setActiveTab] = useState<TabId>("campaigns");
   const [sorting, setSorting] = useState<SortingState>([{ id: "adSpend", desc: true }]);
   const [filters, setFilters] = useState<PPCFilters>({ ...DEFAULT_FILTERS });
+  const selectedBrand = useBrandStore((s) => s.selectedBrand);
+  const brandVal = selectedBrand !== "All Brands" ? selectedBrand : undefined;
   const [showFilters, setShowFilters] = useState(false);
   const [expandedCampaigns, setExpandedCampaigns] = useState<Set<string>>(new Set());
   const [detailCampaign, setDetailCampaign] = useState<string | null>(null);
@@ -191,8 +196,9 @@ export function PPCPage() {
     if (filters.status !== "all") p.set("status", filters.status);
     if (filters.type !== "all") p.set("type", filters.type);
     if (filters.search) p.set("search", filters.search);
+    if (brandVal) p.set("brand", brandVal);
     return p.toString();
-  }, [from, to, activeTab, filters]);
+  }, [from, to, activeTab, filters, brandVal]);
 
   const { data, isLoading, isError, error, refetch } = useQuery<PPCApiResponse>({
     queryKey: ["ppc", filterParams],

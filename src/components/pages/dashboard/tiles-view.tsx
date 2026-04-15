@@ -11,6 +11,7 @@ import { PeriodSummaryCard } from "./period-summary-card";
 import { ProductPerformanceTable } from "./product-performance-table";
 import { AIInsightBanner } from "./ai-insight-banner";
 import { pacificDateStr, subDays, parseYearMonth, toISODate } from "@/lib/utils/pacific-date";
+import { useBrandParam } from "@/lib/stores/brand-store";
 import type { DashboardTilesData, PeriodMetrics, TilesCombo } from "@/lib/services/dashboard-tiles-service";
 
 // ─── Combo options ─────────────────────────────────────────────────────────
@@ -69,8 +70,9 @@ export function DashboardTilesView() {
   const [datePreset, setDatePreset] = useState<string>("30d");
   const [customFrom, setCustomFrom] = useState<Date | null>(null);
   const [customTo, setCustomTo] = useState<Date | null>(null);
+  const bp = useBrandParam();
 
-  const tilesUrl = `/api/dashboard/tiles?combo=${combo}`;
+  const tilesUrl = `/api/dashboard/tiles?combo=${combo}${bp}`;
 
   const { data, isLoading, isError, error, refetch } =
     useApiData<DashboardTilesData>(tilesUrl);
@@ -84,7 +86,7 @@ export function DashboardTilesView() {
   }, [datePreset, customFrom, customTo]);
 
   const extraUrl = extraDates
-    ? `/api/dashboard/tiles?combo=default&from=${extraDates.from}&to=${extraDates.to}`
+    ? `/api/dashboard/tiles?combo=default&from=${extraDates.from}&to=${extraDates.to}${bp}`
     : null;
 
   if (extraUrl && extraDates) {

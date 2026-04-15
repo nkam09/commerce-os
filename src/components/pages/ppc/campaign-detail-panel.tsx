@@ -8,6 +8,7 @@ import {
   ResponsiveContainer, Legend,
 } from "recharts";
 import type { CampaignDetail } from "@/lib/services/ppc-service";
+import { useBrandStore } from "@/lib/stores/brand-store";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -58,10 +59,12 @@ function Stat({ label, value, color }: { label: string; value: string; color?: s
 // ─── Main component ──────────────────────────────────────────────────────────
 
 export function CampaignDetailPanel({ campaignName, from, to, onClose }: Props) {
+  const brand = useBrandStore((s) => s.selectedBrand);
+  const brandSuffix = brand && brand !== "All Brands" ? `&brand=${encodeURIComponent(brand)}` : "";
   const { data, isLoading } = useQuery<CampaignDetail>({
-    queryKey: ["ppc-campaign-detail", campaignName, from, to],
+    queryKey: ["ppc-campaign-detail", campaignName, from, to, brand],
     queryFn: async () => {
-      const url = `/api/ppc/campaign/${encodeURIComponent(campaignName)}?from=${from}&to=${to}`;
+      const url = `/api/ppc/campaign/${encodeURIComponent(campaignName)}?from=${from}&to=${to}${brandSuffix}`;
       const res = await fetch(url);
       const json = await res.json();
       if (!json.ok) throw new Error(json.error ?? "Failed to load");

@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils/cn";
 import { useUIStore } from "@/lib/stores/ui-store";
 import { useNotificationStore } from "@/lib/stores/notification-store";
 import { NotificationDropdown } from "@/components/layout/notification-dropdown";
+import { BrandSelector } from "@/components/layout/brand-selector";
 
 const UserButton = dynamic(
   () => import("@clerk/nextjs").then((m) => m.UserButton),
@@ -233,6 +234,9 @@ export function TopNav() {
 
           {/* Right controls */}
           <div className="flex items-center gap-1">
+            {/* Brand filter */}
+            <BrandSelector />
+
             {/* AI Chat toggle */}
             <button
               type="button"
