@@ -143,6 +143,18 @@ function buildPeriodDefs(combo: TilesCombo = "default"): PeriodDef[] {
   const forecastTotalDays = daysBetween(mtdStart, monthEnd);
   const forecastElapsedDays = daysBetween(mtdStart, now);
 
+  // Prior MTD: same elapsed days in the previous month (for comparison only — hidden tile)
+  const priorMtdStart = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)
+  );
+  const priorMtdEnd = new Date(
+    Date.UTC(
+      priorMtdStart.getUTCFullYear(),
+      priorMtdStart.getUTCMonth(),
+      Math.min(now.getUTCDate(), lastMonthEnd.getUTCDate())
+    )
+  );
+
   switch (combo) {
     case "days":
       return [
@@ -179,6 +191,7 @@ function buildPeriodDefs(combo: TilesCombo = "default"): PeriodDef[] {
     case "months": {
       const monthsResult: PeriodDef[] = [
         { label: "MTD", key: "mtd", from: mtdStart, to: now },
+        { label: "Prior MTD", key: "prior_mtd", from: priorMtdStart, to: priorMtdEnd },
         { label: "Last Month", key: "last_month", from: lastMonthStart, to: lastMonthEnd },
       ];
       for (let i = 2; i <= 3; i++) {
@@ -231,6 +244,8 @@ function buildPeriodDefs(combo: TilesCombo = "default"): PeriodDef[] {
           forecastElapsedDays,
         },
         { label: "Last Month", key: "last_month", from: lastMonthStart, to: lastMonthEnd },
+        // Hidden — used only as a comparison period for MTD.
+        { label: "Prior MTD", key: "prior_mtd", from: priorMtdStart, to: priorMtdEnd },
       ];
   }
 }

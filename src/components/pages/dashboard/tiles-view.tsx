@@ -56,10 +56,10 @@ const COMBO_OPTIONS: { value: TilesCombo; label: string }[] = [
 
 /** Map period keys to their comparison period for % change badges */
 const COMPARISON_MAPS: Record<TilesCombo, Record<string, string>> = {
-  default: { mtd: "last_month", forecast: "last_month" },
+  default: { mtd: "prior_mtd", forecast: "last_month" },
   days: { last_7: "last_14", last_14: "last_30" },
   weeks: { this_week: "week_1", week_1: "week_2", week_2: "week_3" },
-  months: { mtd: "last_month", last_month: "month_2", month_2: "month_3" },
+  months: { mtd: "prior_mtd", last_month: "month_2", month_2: "month_3" },
   quarters: { quarter_0: "quarter_1", quarter_1: "quarter_2" },
 };
 
@@ -168,23 +168,28 @@ export function DashboardTilesView() {
         />
       </div>
 
-      {/* Period Summary Cards */}
-      <div className={cn(
-        "grid gap-3 md:gap-4",
-        data.periods.length <= 3
-          ? "grid-cols-2 sm:grid-cols-3"
-          : data.periods.length === 4
-          ? "grid-cols-2 lg:grid-cols-4"
-          : "grid-cols-2 lg:grid-cols-5",
-      )}>
-        {data.periods.map((period) => (
-          <PeriodSummaryCard
-            key={period.periodKey}
-            period={period}
-            comparisonPeriod={comparisonMap[period.periodKey] ?? null}
-          />
-        ))}
-      </div>
+      {/* Period Summary Cards — prior_mtd is comparison-only, hidden */}
+      {(() => {
+        const visiblePeriods = data.periods.filter((p) => p.periodKey !== "prior_mtd");
+        return (
+          <div className={cn(
+            "grid gap-3 md:gap-4",
+            visiblePeriods.length <= 3
+              ? "grid-cols-2 sm:grid-cols-3"
+              : visiblePeriods.length === 4
+              ? "grid-cols-2 lg:grid-cols-4"
+              : "grid-cols-2 lg:grid-cols-5",
+          )}>
+            {visiblePeriods.map((period) => (
+              <PeriodSummaryCard
+                key={period.periodKey}
+                period={period}
+                comparisonPeriod={comparisonMap[period.periodKey] ?? null}
+              />
+            ))}
+          </div>
+        );
+      })()}
 
       {/* Extra period card from date range selection */}
       {extraDates && extraQuery.data && extraQuery.data.periods.length > 0 && (
