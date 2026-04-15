@@ -17,7 +17,7 @@
  */
 
 import { requireUser } from "@/lib/auth/require-user";
-import { apiError, apiUnauthorized } from "@/lib/utils/api";
+import { apiError, apiUnauthorized, parseBrand } from "@/lib/utils/api";
 import { generatePPCReportData } from "@/lib/services/ppc-report-service";
 import { buildPPCReportWorkbook } from "@/lib/services/ppc-report-builder";
 
@@ -51,10 +51,12 @@ export async function GET(req: Request) {
       return apiError("`from` must be on or before `to`", 400);
     }
 
+    const brand = parseBrand(url.searchParams);
     const data = await generatePPCReportData({
       userId,
       from,
       to,
+      brand,
     });
 
     const buffer = await buildPPCReportWorkbook(data);

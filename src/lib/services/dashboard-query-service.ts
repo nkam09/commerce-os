@@ -36,14 +36,15 @@ export type OverviewDashboard = {
   }[];
 };
 
-export async function getOverviewDashboard(userId: string): Promise<OverviewDashboard> {
+export async function getOverviewDashboard(userId: string, brand?: string): Promise<OverviewDashboard> {
   const start = daysAgo(30);
   const today = todayUtc();
+  const productWhere = brand ? { userId, brand } : { userId };
 
   // Aggregate sales
   const salesAgg = await prisma.dailySale.aggregate({
     where: {
-      product: { userId },
+      product: productWhere,
       date: { gte: start, lte: today },
     },
     _sum: {
@@ -57,7 +58,7 @@ export async function getOverviewDashboard(userId: string): Promise<OverviewDash
   // Aggregate fees
   const feesAgg = await prisma.dailyFee.aggregate({
     where: {
-      product: { userId },
+      product: productWhere,
       date: { gte: start, lte: today },
     },
     _sum: {
@@ -74,7 +75,7 @@ export async function getOverviewDashboard(userId: string): Promise<OverviewDash
   // Aggregate ads
   const adsAgg = await prisma.dailyAd.aggregate({
     where: {
-      product: { userId },
+      product: productWhere,
       date: { gte: start, lte: today },
     },
     _sum: {
@@ -103,8 +104,8 @@ export async function getOverviewDashboard(userId: string): Promise<OverviewDash
 
   // Product counts
   const [totalProducts, activeProducts] = await Promise.all([
-    prisma.product.count({ where: { userId, status: { not: "ARCHIVED" } } }),
-    prisma.product.count({ where: { userId, status: "ACTIVE" } }),
+    prisma.product.count({ where: { ...productWhere, status: { not: "ARCHIVED" } } }),
+    prisma.product.count({ where: { ...productWhere, status: "ACTIVE" } }),
   ]);
 
   // Open critical/warning insights
@@ -117,7 +118,7 @@ export async function getOverviewDashboard(userId: string): Promise<OverviewDash
 
   // Product health: latest inventory snapshot per product
   const products = await prisma.product.findMany({
-    where: { userId, status: { not: "ARCHIVED" } },
+    where: { ...productWhere, status: { not: "ARCHIVED" } },
     select: {
       id: true,
       asin: true,
@@ -151,7 +152,7 @@ export async function getOverviewDashboard(userId: string): Promise<OverviewDash
   const salesByProduct = await prisma.dailySale.groupBy({
     by: ["productId"],
     where: {
-      product: { userId },
+      product: productWhere,
       date: { gte: start, lte: today },
     },
     _sum: { unitsSold: true },
@@ -225,12 +226,13 @@ export type InventoryDashboard = {
   };
 };
 
-export async function getInventoryDashboard(userId: string): Promise<InventoryDashboard> {
+export async function getInventoryDashboard(userId: string, brand?: string): Promise<InventoryDashboard> {
   const start = daysAgo(30);
   const today = todayUtc();
+  const productWhere = brand ? { userId, brand } : { userId };
 
   const products = await prisma.product.findMany({
-    where: { userId, status: { not: "ARCHIVED" } },
+    where: { ...productWhere, status: { not: "ARCHIVED" } },
     select: {
       id: true,
       asin: true,
@@ -258,7 +260,7 @@ export async function getInventoryDashboard(userId: string): Promise<InventoryDa
   const salesByProduct = await prisma.dailySale.groupBy({
     by: ["productId"],
     where: {
-      product: { userId },
+      product: productWhere,
       date: { gte: start, lte: today },
     },
     _sum: { unitsSold: true },
@@ -381,14 +383,15 @@ export type CashFlowDashboard = {
   }[];
 };
 
-export async function getCashFlowDashboard(userId: string): Promise<CashFlowDashboard> {
+export async function getCashFlowDashboard(userId: string, brand?: string): Promise<CashFlowDashboard> {
   const start = daysAgo(30);
   const today = todayUtc();
+  const productWhere = brand ? { userId, brand } : { userId };
 
   // Estimate cash inflow from recent gross sales
   const salesAgg = await prisma.dailySale.aggregate({
     where: {
-      product: { userId },
+      product: productWhere,
       date: { gte: start, lte: today },
     },
     _sum: { grossSales: true, refundAmount: true },

@@ -10,6 +10,7 @@ import { CustomizeForecastTab } from "./customize-forecast-tab";
 import { RestockProfilesTab } from "./restock-profiles-tab";
 import { EmailReminderTab } from "./email-reminder-tab";
 import type { RestockData } from "@/lib/services/restock-service";
+import { useBrandParam } from "@/lib/stores/brand-store";
 
 const TABS = [
   "Forecast",
@@ -22,8 +23,9 @@ type Tab = (typeof TABS)[number];
 
 export function RestockForecasting() {
   const [tab, setTab] = useState<Tab>("Forecast");
+  const bp = useBrandParam();
   const { data, isLoading, isError, error } = useApiData<RestockData>(
-    "/api/restock/forecast"
+    `/api/restock/forecast?_=1${bp}`
   );
 
   if (isLoading) {

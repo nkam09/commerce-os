@@ -26,13 +26,14 @@ export type ProductsPageData = {
 // ─── Service ────────────────────────────────────────────────────────────────
 
 export async function getProductsPageData(
-  userId: string
+  userId: string,
+  brand?: string
 ): Promise<ProductsPageData> {
   const thirtyDaysAgo = daysAgo(30);
 
   // Fetch active products with settings, latest inventory, and 30-day aggregates
   const products = await prisma.product.findMany({
-    where: { userId, status: "ACTIVE" },
+    where: { userId, status: "ACTIVE", ...(brand ? { brand } : {}) },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,

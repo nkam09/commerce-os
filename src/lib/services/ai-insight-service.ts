@@ -30,13 +30,13 @@ type ProductInsight = {
   daysLeft: number | null;
 };
 
-export async function getDashboardInsight(userId: string): Promise<string> {
+export async function getDashboardInsight(userId: string, brand?: string): Promise<string> {
   const start = daysAgo(29);
   const today = todayUtc();
 
   // ── Fetch products with settings + latest inventory ────────────────────
   const products = await prisma.product.findMany({
-    where: { userId, status: { not: "ARCHIVED" } },
+    where: { userId, status: { not: "ARCHIVED" }, ...(brand ? { brand } : {}) },
     select: {
       id: true,
       asin: true,
@@ -82,7 +82,7 @@ export async function getDashboardInsight(userId: string): Promise<string> {
       _sum: { spend: true, attributedSales: true },
     }),
     prisma.reimbursement.aggregate({
-      where: { product: { userId }, reimburseDate: { gte: start, lte: today } },
+      where: { product: { userId, ...(brand ? { brand } : {}) }, reimburseDate: { gte: start, lte: today } },
       _sum: { amountTotal: true },
     }),
   ]);

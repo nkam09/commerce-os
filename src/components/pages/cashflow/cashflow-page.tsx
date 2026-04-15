@@ -9,6 +9,7 @@ import { ScenarioPlanner } from "./scenario-planner";
 import { MonthlyBreakdownTable } from "./monthly-breakdown-table";
 import { formatCurrency } from "@/lib/utils/formatters";
 import type { CashflowPageData, CashPositionCard } from "@/lib/services/cashflow-service";
+import { useBrandParam } from "@/lib/stores/brand-store";
 
 type Props = {
   initialData?: CashflowPageData;
@@ -51,8 +52,9 @@ function buildAIBannerMessage(cards: CashPositionCard[]): string {
 }
 
 export function CashflowPage({ initialData }: Props) {
+  const bp = useBrandParam();
   const { data: fetched } = useApiData<CashflowPageData>(
-    initialData ? null : "/api/cashflow/projections"
+    initialData ? null : `/api/cashflow/projections?_=1${bp}`
   );
 
   const data = initialData ?? fetched;

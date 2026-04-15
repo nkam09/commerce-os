@@ -7,6 +7,7 @@ import { formatCurrency, formatPercent } from "@/lib/utils/formatters";
 import { AIInsightBanner } from "@/components/pages/dashboard/ai-insight-banner";
 import { ProductSettingsModal } from "@/components/pages/products/product-settings-modal";
 import type { ProductsPageData, ProductManagementRow } from "@/lib/services/products-service";
+import { useBrandParam } from "@/lib/stores/brand-store";
 
 // ─── Sort ────────────────────────────────────────────────────────────────────
 
@@ -408,8 +409,9 @@ function LoadingSkeleton() {
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export function ProductsManagement({ initialData }: { initialData?: ProductsPageData }) {
+  const bp = useBrandParam();
   const { data: apiData, isLoading, isError, error, refetch } =
-    useApiData<ProductsPageData>(initialData ? null : "/api/pages/products-management");
+    useApiData<ProductsPageData>(initialData ? null : `/api/pages/products-management?_=1${bp}`);
   const data = initialData ?? apiData;
 
   const [cogsFilter, setCogsFilter] = useState("all");

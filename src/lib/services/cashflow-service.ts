@@ -174,11 +174,12 @@ type DailyAggregate = {
 async function getDailyAggregates(
   userId: string,
   start: Date,
-  end: Date
+  end: Date,
+  brand?: string
 ): Promise<DailyAggregate[]> {
   // Get user's product IDs for filtering
   const products = await prisma.product.findMany({
-    where: { userId },
+    where: { userId, ...(brand ? { brand } : {}) },
     select: { id: true },
   });
   const productIds = products.map((p) => p.id);
@@ -263,15 +264,16 @@ async function getMonthlyExpensesTotal(userId: string): Promise<number> {
 // ─── Position Cards ──────────────────────────────────────────────────────────
 
 async function buildPositionCards(
-  userId: string
+  userId: string,
+  brand?: string
 ): Promise<CashPositionCard[]> {
   const thirtyDaysAgo = daysAgo(30);
   const sixtyDaysAgo = daysAgo(60);
   const today = todayUtc();
 
   const [current, previous] = await Promise.all([
-    getDailyAggregates(userId, thirtyDaysAgo, today),
-    getDailyAggregates(userId, sixtyDaysAgo, thirtyDaysAgo),
+    getDailyAggregates(userId, thirtyDaysAgo, today, brand),
+    getDailyAggregates(userId, sixtyDaysAgo, thirtyDaysAgo, brand),
   ]);
 
   const monthlyExpenses = await getMonthlyExpensesTotal(userId);
@@ -340,10 +342,10 @@ async function buildPositionCards(
 
 // ─── Timeline (90 days) ──────────────────────────────────────────────────────
 
-async function buildTimeline(userId: string): Promise<TimelinePoint[]> {
+async function buildTimeline(userId: string, brand?: string): Promise<TimelinePoint[]> {
   const start = daysAgo(89);
   const end = todayUtc();
-  const dailyData = await getDailyAggregates(userId, start, end);
+  const dailyData = await getDailyAggregates(userId, start, end, brand);
 
   const monthlyExpenses = await getMonthlyExpensesTotal(userId);
   const dailyExpenseAlloc = round(monthlyExpenses / 30, 2);
@@ -500,10 +502,10 @@ async function buildSettlements(userId: string): Promise<SettlementRow[]> {
 
 // ─── Default Scenario Inputs (derived from real data) ────────────────────────
 
-async function buildDefaultInputs(userId: string): Promise<ScenarioInputs> {
+async function buildDefaultInputs(userId: string, brand?: string): Promise<ScenarioInputs> {
   const thirtyDaysAgo = daysAgo(30);
   const today = todayUtc();
-  const dailyData = await getDailyAggregates(userId, thirtyDaysAgo, today);
+  const dailyData = await getDailyAggregates(userId, thirtyDaysAgo, today, brand);
   const monthlyExpenses = await getMonthlyExpensesTotal(userId);
 
   const totalAdSpend = dailyData.reduce((s, d) => s + d.adSpend, 0);
@@ -547,7 +549,7 @@ async function buildSavedScenarios(userId: string): Promise<SavedScenario[]> {
 
 // ─── Monthly Cashflow ────────────────────────────────────────────────────────
 
-async function buildMonthlyCashflow(userId: string): Promise<MonthlyCashflow[]> {
+async function buildMonthlyCashflow(userId: string, brand?: string): Promise<MonthlyCashflow[]> {
   const today = todayUtc();
   const currentMonth = today.getUTCMonth();
   const currentYear = today.getUTCFullYear();
@@ -575,7 +577,7 @@ async function buildMonthlyCashflow(userId: string): Promise<MonthlyCashflow[]> 
 
     if (!isProjected) {
       // Use real data
-      const dailyData = await getDailyAggregates(userId, monthStart, monthEnd);
+      const dailyData = await getDailyAggregates(userId, monthStart, monthEnd, brand);
 
       const revenue = dailyData.reduce((s, d) => s + d.grossSales, 0);
       const refunds = dailyData.reduce((s, d) => s + d.refunds, 0);
@@ -639,7 +641,8 @@ async function buildMonthlyCashflow(userId: string): Promise<MonthlyCashflow[]> 
 // ─── Main entry point ────────────────────────────────────────────────────────
 
 export async function getCashflowPageData(
-  userId: string
+  userId: string,
+  brand?: string
 ): Promise<CashflowPageData> {
   const [
     positionCards,
@@ -649,12 +652,12 @@ export async function getCashflowPageData(
     savedScenarios,
     monthlyCashflow,
   ] = await Promise.all([
-    buildPositionCards(userId),
-    buildTimeline(userId),
+    buildPositionCards(userId, brand),
+    buildTimeline(userId, brand),
     buildSettlements(userId),
-    buildDefaultInputs(userId),
+    buildDefaultInputs(userId, brand),
     buildSavedScenarios(userId),
-    buildMonthlyCashflow(userId),
+    buildMonthlyCashflow(userId, brand),
   ]);
 
   return {

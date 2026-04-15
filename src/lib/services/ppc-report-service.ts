@@ -257,6 +257,7 @@ export async function generatePPCReportData(params: {
   userId: string;
   from: string; // YYYY-MM-DD
   to: string;   // YYYY-MM-DD
+  brand?: string;
 }): Promise<PPCReportData> {
   const warnings: string[] = [];
   const period: PPCReportPeriod = { from: params.from, to: params.to };
@@ -438,7 +439,7 @@ export async function generatePPCReportData(params: {
   const dailyRevenueMap = new Map<string, number>();
   try {
     const allUserProducts = await prisma.product.findMany({
-      where: { userId: params.userId },
+      where: { userId: params.userId, ...(params.brand ? { brand: params.brand } : {}) },
       select: { id: true },
     });
     const allProductIds = allUserProducts.map((p) => p.id);
@@ -660,7 +661,7 @@ export async function generatePPCReportData(params: {
   const skuPnl: SkuPnlRow[] = [];
   try {
     const products = await prisma.product.findMany({
-      where: { userId: params.userId, asin: { in: TRACKED_ASINS } },
+      where: { userId: params.userId, asin: { in: TRACKED_ASINS }, ...(params.brand ? { brand: params.brand } : {}) },
       select: { id: true, asin: true, sku: true },
     });
     console.log(

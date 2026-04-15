@@ -140,12 +140,12 @@ function velocityOrNull(units: number | null, days: number): number | null {
 
 // ─── Main Query ──────────────────────────────────────────────────────────────
 
-export async function getRestockData(userId: string): Promise<RestockData> {
+export async function getRestockData(userId: string, brand?: string): Promise<RestockData> {
   const today = todayUtc();
 
   // 1. Load active products with settings
   const products = await prisma.product.findMany({
-    where: { userId, status: "ACTIVE" },
+    where: { userId, status: "ACTIVE", ...(brand ? { brand } : {}) },
     include: { setting: true },
   });
 

@@ -17,9 +17,9 @@ export type ProductsPagePayload = {
   }[];
 };
 
-export async function getProductsPage(userId: string): Promise<ProductsPagePayload> {
+export async function getProductsPage(userId: string, brand?: string): Promise<ProductsPagePayload> {
   const products = await prisma.product.findMany({
-    where: { userId, status: { not: "ARCHIVED" } },
+    where: { userId, status: { not: "ARCHIVED" }, ...(brand ? { brand } : {}) },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
