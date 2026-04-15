@@ -31,7 +31,7 @@ const LOWER_IS_BETTER = new Set([
 /** Compute % change, returns null if base is 0 or missing */
 function pctChange(current: number | null | undefined, base: number | null | undefined): number | null {
   if (current == null || base == null || base === 0) return null;
-  return (current - base) / base;
+  return (current - base) / Math.abs(base);
 }
 
 type ChangeBadgeProps = {
