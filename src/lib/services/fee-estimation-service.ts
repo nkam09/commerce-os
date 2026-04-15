@@ -25,7 +25,8 @@ import { prisma } from "@/lib/db/prisma";
 const FEE_RATES: Record<string, { fba: number; referral: number }> = {
   "B07XYBW774": { fba: 5.33, referral: 3.45 }, // LS-F7X1-BY3D, $22.99
   "B0B27GRHFR": { fba: 4.20, referral: 2.25 }, // V7-IMUQ-04E5, $14.99
-  "B0D7NNL4BL": { fba: 2.91, referral: 1.35 }, // KS-BW20L,     $8.99
+  "B0D7NNL4BL": { fba: 2.91, referral: 1.35 },
+  "B08H8PKF5W": { fba: 3.50, referral: 2.16 }, // KS-BW20L,     $8.99
 };
 
 /** Default rates when ASIN is not in the known map */
