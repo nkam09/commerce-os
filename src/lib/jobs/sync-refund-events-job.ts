@@ -21,8 +21,8 @@
  *     .SellerSKU                                       â†’ sku
  *     .QuantityShipped                                 â†’ refundCount
  *     .ItemChargeAdjustmentList[].ChargeType=Principal â†’ refundAmount (abs)
- *     .ItemFeeAdjustmentList[].FeeType=Commission      â†’ refundCommission (abs)
- *     .ItemFeeAdjustmentList[].FeeType=RefundCommission â†’ refundedReferralFee (abs)
+ *     .ItemFeeAdjustmentList[].FeeType=Commission      â†’ refundedReferralFee (abs)  // referral fee refunded back
+ *     .ItemFeeAdjustmentList[].FeeType=RefundCommission â†’ refundCommission (abs)      // commission Amazon charges for refund
  *
  * Cursor: ISO date string in SyncCursor(connectionId, "sync-refund-events").
  * On first run, defaults to 7 days ago.
@@ -85,8 +85,8 @@ type RefundItem = {
   date: Date;
   refundCount: number;       // units refunded (QuantityShipped)
   refundAmount: number;      // abs(Principal charges)
-  refundCommission: number;  // abs(Commission fee) â€” amount Amazon charges for refund
-  refundedReferralFee: number; // RefundCommission fee (positive) â€” referral fee returned
+  refundCommission: number;  // abs(RefundCommission fee) â€” commission Amazon charges for refund
+  refundedReferralFee: number; // abs(Commission fee) â€” referral fee refunded back to seller
 };
 
 /**
@@ -94,8 +94,8 @@ type RefundItem = {
  *
  * Refund events use ADJUSTMENT variants of all list names. Field meanings:
  *   - Principal charges are negative (customer got money back) â†’ take abs
- *   - Commission fees are negative (Amazon charges for refund processing) â†’ take abs
- *   - RefundCommission fees are positive (referral fee returned to seller)
+ *   - Commission fee = the referral fee refunded back to the seller â†’ refundedReferralFee (abs)
+ *   - RefundCommission fee = what Amazon charges the seller for processing the refund â†’ refundCommission (abs)
  */
 function extractRefundItems(
   events: SpFinancialEvents,
@@ -136,11 +136,11 @@ function extractRefundItems(
         const amount = fee.FeeAmount?.CurrencyAmount ?? 0;
 
         if (feeType === "Commission") {
-          // Commission is charged for the refund â€” negative â†’ abs
-          refundCommission += Math.abs(amount);
+          // Commission = the referral fee refunded back to the seller
+          refundedReferralFee += Math.abs(amount);
         } else if (feeType === "RefundCommission") {
-          // RefundCommission is the referral fee returned â€” positive already
-          refundedReferralFee += amount;
+          // RefundCommission = the commission Amazon charges for processing the refund
+          refundCommission += Math.abs(amount);
         }
       }
 
