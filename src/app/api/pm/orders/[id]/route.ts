@@ -48,6 +48,12 @@ export async function PUT(request: Request, ctx: Params) {
       amazonOrderId,
       amazonRefId,
       terms,
+      currency,
+      exchangeRate,
+      shippingCost,
+      shippingCurrency,
+      shipToAddress,
+      shipMethod,
       estProductionDays,
       estDeliveryDays,
       actProductionEnd,
@@ -69,6 +75,12 @@ export async function PUT(request: Request, ctx: Params) {
         ...(amazonOrderId !== undefined && { amazonOrderId }),
         ...(amazonRefId !== undefined && { amazonRefId }),
         ...(terms !== undefined && { terms }),
+        ...(currency !== undefined && { currency }),
+        ...(exchangeRate !== undefined && { exchangeRate }),
+        ...(shippingCost !== undefined && { shippingCost }),
+        ...(shippingCurrency !== undefined && { shippingCurrency }),
+        ...(shipToAddress !== undefined && { shipToAddress }),
+        ...(shipMethod !== undefined && { shipMethod }),
         ...(estProductionDays !== undefined && { estProductionDays }),
         ...(estDeliveryDays !== undefined && { estDeliveryDays }),
         ...(actProductionEnd !== undefined && {
@@ -94,6 +106,7 @@ export async function PUT(request: Request, ctx: Params) {
               quantity: number;
               unit?: string;
               unitPrice: number;
+              isOneTimeFee?: boolean;
             },
             i: number
           ) => ({
@@ -103,6 +116,7 @@ export async function PUT(request: Request, ctx: Params) {
             quantity: item.quantity,
             unit: item.unit ?? "pc.",
             unitPrice: item.unitPrice,
+            isOneTimeFee: item.isOneTimeFee ?? false,
             sortOrder: i,
           })
         ),
@@ -172,6 +186,12 @@ function serializeOrder(order: any) {
     amazonOrderId: order.amazonOrderId,
     amazonRefId: order.amazonRefId,
     terms: order.terms,
+    currency: order.currency ?? "USD",
+    exchangeRate: order.exchangeRate ? Number(order.exchangeRate) : null,
+    shippingCost: Number(order.shippingCost ?? 0),
+    shippingCurrency: order.shippingCurrency ?? "USD",
+    shipToAddress: order.shipToAddress ?? null,
+    shipMethod: order.shipMethod ?? null,
     estProductionDays: order.estProductionDays,
     estDeliveryDays: order.estDeliveryDays,
     actProductionEnd: order.actProductionEnd
@@ -189,6 +209,7 @@ function serializeOrder(order: any) {
       quantity: item.quantity,
       unit: item.unit,
       unitPrice: Number(item.unitPrice),
+      isOneTimeFee: item.isOneTimeFee ?? false,
       sortOrder: item.sortOrder,
     })),
     payments: (order.payments ?? []).map((p: any) => ({

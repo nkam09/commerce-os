@@ -718,6 +718,12 @@ model SupplierOrder {
   amazonOrderId     String?
   amazonRefId       String?
   terms             String   @default("50/50 Upfront/Before Delivery")
+  currency          String   @default("USD")
+  exchangeRate      Decimal? @db.Decimal(14, 6)
+  shippingCost      Decimal  @default(0) @db.Decimal(14, 4)
+  shippingCurrency  String   @default("USD")
+  shipToAddress     String?  @db.Text
+  shipMethod        String?
 
   estProductionDays Int?
   estDeliveryDays   Int?
@@ -737,17 +743,18 @@ model SupplierOrder {
 }
 
 model SupplierOrderItem {
-  id          String        @id @default(cuid())
-  orderId     String
-  order       SupplierOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  asin        String
-  description String
-  quantity    Int
-  unit        String        @default("pc.")
-  unitPrice   Decimal       @db.Decimal(10, 4)
-  sortOrder   Int           @default(0)
+  id           String        @id @default(cuid())
+  orderId      String
+  order        SupplierOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  asin         String
+  description  String
+  quantity     Int
+  unit         String        @default("pc.")
+  unitPrice    Decimal       @db.Decimal(10, 4)
+  isOneTimeFee Boolean       @default(false)
+  sortOrder    Int           @default(0)
 
-  createdAt   DateTime      @default(now())
+  createdAt    DateTime      @default(now())
 
   @@map("supplier_order_items")
 }

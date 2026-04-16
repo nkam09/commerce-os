@@ -47,6 +47,12 @@ export async function POST(request: Request) {
       amazonOrderId,
       amazonRefId,
       terms,
+      currency,
+      exchangeRate,
+      shippingCost,
+      shippingCurrency,
+      shipToAddress,
+      shipMethod,
       estProductionDays,
       estDeliveryDays,
       actProductionEnd,
@@ -77,6 +83,12 @@ export async function POST(request: Request) {
         amazonOrderId: amazonOrderId ?? null,
         amazonRefId: amazonRefId ?? null,
         terms: terms ?? "50/50 Upfront/Before Delivery",
+        currency: currency ?? "USD",
+        exchangeRate: exchangeRate ?? null,
+        shippingCost: shippingCost ?? 0,
+        shippingCurrency: shippingCurrency ?? "USD",
+        shipToAddress: shipToAddress ?? null,
+        shipMethod: shipMethod ?? null,
         estProductionDays: estProductionDays ?? null,
         estDeliveryDays: estDeliveryDays ?? null,
         actProductionEnd: actProductionEnd ? new Date(actProductionEnd) : null,
@@ -92,6 +104,7 @@ export async function POST(request: Request) {
                 quantity: number;
                 unit?: string;
                 unitPrice: number;
+                isOneTimeFee?: boolean;
               },
               i: number
             ) => ({
@@ -100,6 +113,7 @@ export async function POST(request: Request) {
               quantity: item.quantity,
               unit: item.unit ?? "pc.",
               unitPrice: item.unitPrice,
+              isOneTimeFee: item.isOneTimeFee ?? false,
               sortOrder: i,
             })
           ),
@@ -142,6 +156,12 @@ function serializeOrder(order: any) {
     amazonOrderId: order.amazonOrderId,
     amazonRefId: order.amazonRefId,
     terms: order.terms,
+    currency: order.currency ?? "USD",
+    exchangeRate: order.exchangeRate ? Number(order.exchangeRate) : null,
+    shippingCost: Number(order.shippingCost ?? 0),
+    shippingCurrency: order.shippingCurrency ?? "USD",
+    shipToAddress: order.shipToAddress ?? null,
+    shipMethod: order.shipMethod ?? null,
     estProductionDays: order.estProductionDays,
     estDeliveryDays: order.estDeliveryDays,
     actProductionEnd: order.actProductionEnd
@@ -159,6 +179,7 @@ function serializeOrder(order: any) {
       quantity: item.quantity,
       unit: item.unit,
       unitPrice: Number(item.unitPrice),
+      isOneTimeFee: item.isOneTimeFee ?? false,
       sortOrder: item.sortOrder,
     })),
     payments: order.payments.map((p: any) => ({

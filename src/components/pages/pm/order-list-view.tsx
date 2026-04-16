@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils/cn";
 import type { SupplierOrderData } from "@/lib/types/supplier-order";
-import { calculateOrderTotals, addDays } from "@/lib/types/supplier-order";
+import { calculateOrderTotals, formatOrderCurrency, toUSD, addDays } from "@/lib/types/supplier-order";
 
 type OrderListViewProps = {
   orders: SupplierOrderData[];
@@ -17,12 +17,8 @@ const STATUS_COLORS: Record<string, string> = {
   Cancelled: "bg-red-500/20 text-red-400",
 };
 
-const fmt = (n: number) =>
-  "$" +
-  n.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+const fmtUSD = (n: number) =>
+  "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export function OrderListView({ orders, onOrderClick }: OrderListViewProps) {
   if (orders.length === 0) {
@@ -51,14 +47,15 @@ export function OrderListView({ orders, onOrderClick }: OrderListViewProps) {
         <tbody>
           {orders.map((order) => {
             const totals = calculateOrderTotals(order.lineItems);
-            const totalUnits = order.lineItems.reduce(
-              (s, i) => s + i.quantity,
-              0
-            );
+            const totalUnits = order.lineItems
+              .filter((i) => !i.isOneTimeFee)
+              .reduce((s, i) => s + i.quantity, 0);
             const estDel =
               order.estDeliveryDays && order.orderDate
                 ? addDays(order.orderDate, order.estDeliveryDays)
                 : null;
+            const cur = order.currency ?? "USD";
+            const isNonUSD = cur !== "USD";
 
             return (
               <tr
@@ -76,7 +73,12 @@ export function OrderListView({ orders, onOrderClick }: OrderListViewProps) {
                   {order.orderDate}
                 </td>
                 <td className="px-3 py-2 text-right text-foreground tabular-nums font-medium">
-                  {fmt(totals.orderTotal)}
+                  <span>{formatOrderCurrency(totals.orderTotal, cur)}</span>
+                  {isNonUSD && order.exchangeRate && (
+                    <span className="block text-2xs text-muted-foreground">
+                      ({fmtUSD(toUSD(totals.orderTotal, cur, order.exchangeRate))})
+                    </span>
+                  )}
                 </td>
                 <td className="px-3 py-2 text-right text-foreground tabular-nums">
                   {totalUnits.toLocaleString()}
@@ -85,8 +87,7 @@ export function OrderListView({ orders, onOrderClick }: OrderListViewProps) {
                   <span
                     className={cn(
                       "inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium",
-                      STATUS_COLORS[order.status] ??
-                        "bg-muted text-muted-foreground"
+                      STATUS_COLORS[order.status] ?? "bg-muted text-muted-foreground"
                     )}
                   >
                     {order.status}
@@ -97,9 +98,7 @@ export function OrderListView({ orders, onOrderClick }: OrderListViewProps) {
                 </td>
                 <td className="px-3 py-2 tabular-nums">
                   {order.actDeliveryDate ? (
-                    <span className="text-green-400">
-                      {order.actDeliveryDate}
-                    </span>
+                    <span className="text-green-400">{order.actDeliveryDate}</span>
                   ) : (
                     <span className="text-muted-foreground">—</span>
                   )}

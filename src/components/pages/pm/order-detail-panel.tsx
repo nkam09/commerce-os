@@ -9,8 +9,13 @@ import type {
 } from "@/lib/types/supplier-order";
 import {
   ORDER_STATUSES,
+  CURRENCIES,
+  SHIP_METHODS,
   TRANSACTION_FEE_RATE,
+  DEFAULT_EXCHANGE_RATES,
   calculateOrderTotals,
+  formatOrderCurrency,
+  toUSD,
   parseTermsSplit,
   addDays,
   daysBetween,
@@ -26,14 +31,11 @@ type OrderDetailPanelProps = {
 const TERMS_OPTIONS = [
   "50/50 Upfront/Before Delivery",
   "30/70 Upfront/Before Delivery",
+  "T/T in advance",
 ];
 
-const fmt = (n: number) =>
-  n.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-  });
+const fmtUSD = (n: number) =>
+  "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export function OrderDetailPanel({
   order,
@@ -71,6 +73,10 @@ function OrderDetailPanelInner({
   const [saving, setSaving] = useState(false);
 
   const totals = useMemo(() => calculateOrderTotals(items), [items]);
+  const cur = form.currency ?? "USD";
+  const rate = form.exchangeRate;
+  const isNonUSD = cur !== "USD";
+  const fmt = useCallback((n: number) => formatOrderCurrency(n, cur), [cur]);
 
   const estProdDays = form.estProductionDays ?? 36;
   const estDelDays = form.estDeliveryDays ?? 71;
@@ -98,7 +104,7 @@ function OrderDetailPanelInner({
   );
 
   const updateItem = useCallback(
-    (idx: number, key: keyof SupplierOrderItem, value: number | string) => {
+    (idx: number, key: keyof SupplierOrderItem, value: number | string | boolean) => {
       setItems((prev) =>
         prev.map((item, i) => (i === idx ? { ...item, [key]: value } : item))
       );
@@ -115,6 +121,7 @@ function OrderDetailPanelInner({
         quantity: 0,
         unit: "pc.",
         unitPrice: 0,
+        isOneTimeFee: false,
         sortOrder: prev.length,
       },
     ]);
@@ -169,19 +176,18 @@ function OrderDetailPanelInner({
         <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b border-border bg-card">
           <h2 className="text-sm font-semibold text-foreground truncate">
             Order {form.orderNumber}
+            {isNonUSD && (
+              <span className="ml-2 text-2xs font-normal text-muted-foreground">
+                ({cur})
+              </span>
+            )}
           </h2>
           <button
             type="button"
             onClick={onClose}
             className="rounded p-1 hover:bg-elevated text-muted-foreground hover:text-foreground transition"
           >
-            <svg
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              className="h-4 w-4"
-            >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4">
               <path d="M4 4l8 8M12 4l-8 8" />
             </svg>
           </button>
@@ -223,9 +229,7 @@ function OrderDetailPanelInner({
                   className="input-field"
                 >
                   {ORDER_STATUSES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
+                    <option key={s} value={s}>{s}</option>
                   ))}
                 </select>
               </Field>
@@ -236,18 +240,47 @@ function OrderDetailPanelInner({
                   className="input-field"
                 >
                   {TERMS_OPTIONS.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
+                    <option key={t} value={t}>{t}</option>
                   ))}
                 </select>
               </Field>
+              <Field label="Currency">
+                <select
+                  value={cur}
+                  onChange={(e) => {
+                    const newCur = e.target.value;
+                    updateField("currency", newCur);
+                    if (newCur !== "USD") {
+                      updateField("exchangeRate", DEFAULT_EXCHANGE_RATES[newCur] ?? 1);
+                    } else {
+                      updateField("exchangeRate", null);
+                    }
+                  }}
+                  className="input-field"
+                >
+                  {CURRENCIES.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </Field>
+              {isNonUSD && (
+                <Field label={`Exchange Rate (${cur} → USD)`}>
+                  <input
+                    type="number"
+                    step="0.000001"
+                    value={rate ?? ""}
+                    onChange={(e) =>
+                      updateField("exchangeRate", parseFloat(e.target.value) || null)
+                    }
+                    className="input-field"
+                    placeholder="e.g. 0.006667"
+                  />
+                </Field>
+              )}
               <Field label="Amazon Order ID">
                 <input
                   value={form.amazonOrderId ?? ""}
-                  onChange={(e) =>
-                    updateField("amazonOrderId", e.target.value || null)
-                  }
+                  onChange={(e) => updateField("amazonOrderId", e.target.value || null)}
                   className="input-field"
                   placeholder="e.g. FBA18V3PBJ97"
                 />
@@ -255,9 +288,7 @@ function OrderDetailPanelInner({
               <Field label="Amazon Ref ID">
                 <input
                   value={form.amazonRefId ?? ""}
-                  onChange={(e) =>
-                    updateField("amazonRefId", e.target.value || null)
-                  }
+                  onChange={(e) => updateField("amazonRefId", e.target.value || null)}
                   className="input-field"
                   placeholder="e.g. 747VT3OV"
                 />
@@ -266,82 +297,85 @@ function OrderDetailPanelInner({
             <Field label="Delivery Address">
               <textarea
                 value={form.deliveryAddress ?? ""}
-                onChange={(e) =>
-                  updateField("deliveryAddress", e.target.value || null)
-                }
+                onChange={(e) => updateField("deliveryAddress", e.target.value || null)}
                 rows={2}
                 className="input-field resize-none"
                 placeholder="Warehouse address..."
               />
             </Field>
+
+            {/* Shipping */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <Field label="Ship Method">
+                <select
+                  value={form.shipMethod ?? ""}
+                  onChange={(e) => updateField("shipMethod", e.target.value || null)}
+                  className="input-field"
+                >
+                  <option value="">—</option>
+                  {SHIP_METHODS.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Shipping Cost">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={form.shippingCost ?? 0}
+                  onChange={(e) => updateField("shippingCost", parseFloat(e.target.value) || 0)}
+                  className="input-field"
+                />
+              </Field>
+              <Field label="Shipping Currency">
+                <select
+                  value={form.shippingCurrency ?? "USD"}
+                  onChange={(e) => updateField("shippingCurrency", e.target.value)}
+                  className="input-field"
+                >
+                  {CURRENCIES.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+            {form.shipToAddress !== undefined && (
+              <Field label="Ship-To Address (Freight Forwarder)">
+                <textarea
+                  value={form.shipToAddress ?? ""}
+                  onChange={(e) => updateField("shipToAddress", e.target.value || null)}
+                  rows={2}
+                  className="input-field resize-none"
+                  placeholder="Freight forwarder address..."
+                />
+              </Field>
+            )}
           </section>
 
           {/* ── Timeline Section ──────────────────────────────────── */}
           <section className="space-y-3">
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Timeline
-            </h3>
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Timeline</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <Field label="Est. Production End">
-                <div className="text-xs text-foreground py-1.5">
-                  {estProdDate ?? "—"}
-                </div>
+                <div className="text-xs text-foreground py-1.5">{estProdDate ?? "—"}</div>
               </Field>
               <Field label="Actual Production End">
-                <input
-                  type="date"
-                  value={form.actProductionEnd ?? ""}
-                  onChange={(e) =>
-                    updateField("actProductionEnd", e.target.value || null)
-                  }
-                  className="input-field"
-                />
+                <input type="date" value={form.actProductionEnd ?? ""} onChange={(e) => updateField("actProductionEnd", e.target.value || null)} className="input-field" />
               </Field>
               <Field label="Difference">
-                <div
-                  className={cn(
-                    "text-xs py-1.5 font-medium",
-                    prodDiff !== null && prodDiff > 0
-                      ? "text-red-400"
-                      : prodDiff !== null && prodDiff < 0
-                        ? "text-green-400"
-                        : "text-muted-foreground"
-                  )}
-                >
-                  {prodDiff !== null
-                    ? `${prodDiff > 0 ? "+" : ""}${prodDiff} days`
-                    : "—"}
+                <div className={cn("text-xs py-1.5 font-medium", prodDiff !== null && prodDiff > 0 ? "text-red-400" : prodDiff !== null && prodDiff < 0 ? "text-green-400" : "text-muted-foreground")}>
+                  {prodDiff !== null ? `${prodDiff > 0 ? "+" : ""}${prodDiff} days` : "—"}
                 </div>
               </Field>
               <Field label="Est. Delivery Date">
-                <div className="text-xs text-foreground py-1.5">
-                  {estDelDate ?? "—"}
-                </div>
+                <div className="text-xs text-foreground py-1.5">{estDelDate ?? "—"}</div>
               </Field>
               <Field label="Actual Delivery Date">
-                <input
-                  type="date"
-                  value={form.actDeliveryDate ?? ""}
-                  onChange={(e) =>
-                    updateField("actDeliveryDate", e.target.value || null)
-                  }
-                  className="input-field"
-                />
+                <input type="date" value={form.actDeliveryDate ?? ""} onChange={(e) => updateField("actDeliveryDate", e.target.value || null)} className="input-field" />
               </Field>
               <Field label="Difference">
-                <div
-                  className={cn(
-                    "text-xs py-1.5 font-medium",
-                    delDiff !== null && delDiff > 0
-                      ? "text-red-400"
-                      : delDiff !== null && delDiff < 0
-                        ? "text-green-400"
-                        : "text-muted-foreground"
-                  )}
-                >
-                  {delDiff !== null
-                    ? `${delDiff > 0 ? "+" : ""}${delDiff} days`
-                    : "—"}
+                <div className={cn("text-xs py-1.5 font-medium", delDiff !== null && delDiff > 0 ? "text-red-400" : delDiff !== null && delDiff < 0 ? "text-green-400" : "text-muted-foreground")}>
+                  {delDiff !== null ? `${delDiff > 0 ? "+" : ""}${delDiff} days` : "—"}
                 </div>
               </Field>
             </div>
@@ -350,23 +384,9 @@ function OrderDetailPanelInner({
           {/* ── Line Items Table ──────────────────────────────────── */}
           <section className="space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Line Items
-              </h3>
-              <button
-                type="button"
-                onClick={addItem}
-                className="flex items-center gap-1 text-2xs text-primary hover:text-primary/80 transition"
-              >
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  className="h-3 w-3"
-                >
-                  <path d="M8 3v10M3 8h10" />
-                </svg>
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Line Items</h3>
+              <button type="button" onClick={addItem} className="flex items-center gap-1 text-2xs text-primary hover:text-primary/80 transition">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3"><path d="M8 3v10M3 8h10" /></svg>
                 Add Item
               </button>
             </div>
@@ -375,109 +395,51 @@ function OrderDetailPanelInner({
                 <thead>
                   <tr className="bg-elevated/50 text-muted-foreground">
                     <th className="px-2 py-1.5 text-left font-medium">ASIN</th>
-                    <th className="px-2 py-1.5 text-left font-medium">
-                      Description
-                    </th>
+                    <th className="px-2 py-1.5 text-left font-medium">Description</th>
                     <th className="px-2 py-1.5 text-right font-medium">Qty</th>
                     <th className="px-2 py-1.5 text-left font-medium">Unit</th>
-                    <th className="px-2 py-1.5 text-right font-medium">
-                      Unit Price
-                    </th>
-                    <th className="px-2 py-1.5 text-right font-medium">
-                      w/ Fee
-                    </th>
-                    <th className="px-2 py-1.5 text-right font-medium">
-                      Total
-                    </th>
+                    <th className="px-2 py-1.5 text-right font-medium">Price</th>
+                    <th className="px-2 py-1.5 text-right font-medium">Total</th>
+                    {isNonUSD && <th className="px-2 py-1.5 text-right font-medium">USD</th>}
+                    <th className="px-2 py-1.5 text-center font-medium w-10">Fee</th>
                     <th className="px-1 py-1.5 w-6"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {items.map((item, idx) => {
-                    const withFee = item.unitPrice * (1 + TRANSACTION_FEE_RATE);
                     const total = item.quantity * item.unitPrice;
+                    const usdTotal = toUSD(total, cur, rate);
                     return (
-                      <tr
-                        key={idx}
-                        className="border-t border-border hover:bg-elevated/30"
-                      >
+                      <tr key={idx} className="border-t border-border hover:bg-elevated/30">
                         <td className="px-2 py-1">
-                          <input
-                            value={item.asin}
-                            onChange={(e) =>
-                              updateItem(idx, "asin", e.target.value)
-                            }
-                            className="w-24 bg-transparent text-foreground outline-none"
-                          />
+                          <input value={item.asin} onChange={(e) => updateItem(idx, "asin", e.target.value)} className="w-24 bg-transparent text-foreground outline-none" placeholder={item.isOneTimeFee ? "—" : ""} />
                         </td>
                         <td className="px-2 py-1">
-                          <input
-                            value={item.description}
-                            onChange={(e) =>
-                              updateItem(idx, "description", e.target.value)
-                            }
-                            className="w-20 bg-transparent text-foreground outline-none"
-                          />
+                          <input value={item.description} onChange={(e) => updateItem(idx, "description", e.target.value)} className="w-20 bg-transparent text-foreground outline-none" />
                         </td>
                         <td className="px-2 py-1 text-right">
-                          <input
-                            type="number"
-                            value={item.quantity}
-                            onChange={(e) =>
-                              updateItem(
-                                idx,
-                                "quantity",
-                                parseInt(e.target.value) || 0
-                              )
-                            }
-                            className="w-16 bg-transparent text-foreground text-right outline-none"
-                          />
+                          <input type="number" value={item.quantity} onChange={(e) => updateItem(idx, "quantity", parseInt(e.target.value) || 0)} className="w-16 bg-transparent text-foreground text-right outline-none" />
                         </td>
                         <td className="px-2 py-1">
-                          <input
-                            value={item.unit}
-                            onChange={(e) =>
-                              updateItem(idx, "unit", e.target.value)
-                            }
-                            className="w-10 bg-transparent text-foreground outline-none"
-                          />
+                          <input value={item.unit} onChange={(e) => updateItem(idx, "unit", e.target.value)} className="w-10 bg-transparent text-foreground outline-none" />
                         </td>
                         <td className="px-2 py-1 text-right">
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={item.unitPrice}
-                            onChange={(e) =>
-                              updateItem(
-                                idx,
-                                "unitPrice",
-                                parseFloat(e.target.value) || 0
-                              )
-                            }
-                            className="w-16 bg-transparent text-foreground text-right outline-none"
-                          />
-                        </td>
-                        <td className="px-2 py-1 text-right text-muted-foreground tabular-nums">
-                          {fmt(withFee)}
+                          <input type="number" step="0.01" value={item.unitPrice} onChange={(e) => updateItem(idx, "unitPrice", parseFloat(e.target.value) || 0)} className="w-16 bg-transparent text-foreground text-right outline-none" />
                         </td>
                         <td className="px-2 py-1 text-right text-foreground tabular-nums font-medium">
                           {fmt(total)}
                         </td>
+                        {isNonUSD && (
+                          <td className="px-2 py-1 text-right text-muted-foreground tabular-nums">
+                            {fmtUSD(usdTotal)}
+                          </td>
+                        )}
+                        <td className="px-2 py-1 text-center">
+                          <input type="checkbox" checked={item.isOneTimeFee} onChange={(e) => updateItem(idx, "isOneTimeFee", e.target.checked)} className="rounded" title="One-time fee" />
+                        </td>
                         <td className="px-1 py-1">
-                          <button
-                            type="button"
-                            onClick={() => removeItem(idx)}
-                            className="rounded p-0.5 hover:bg-elevated text-muted-foreground hover:text-red-400 transition"
-                          >
-                            <svg
-                              viewBox="0 0 16 16"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="1.5"
-                              className="h-3 w-3"
-                            >
-                              <path d="M4 4l8 8M12 4l-8 8" />
-                            </svg>
+                          <button type="button" onClick={() => removeItem(idx)} className="rounded p-0.5 hover:bg-elevated text-muted-foreground hover:text-red-400 transition">
+                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3"><path d="M4 4l8 8M12 4l-8 8" /></svg>
                           </button>
                         </td>
                       </tr>
@@ -492,102 +454,66 @@ function OrderDetailPanelInner({
           <section className="space-y-1.5">
             <div className="flex justify-between text-xs">
               <span className="text-muted-foreground">Total Units</span>
-              <span className="text-foreground tabular-nums font-medium">
-                {totals.totalUnits.toLocaleString()}
-              </span>
+              <span className="text-foreground tabular-nums font-medium">{totals.totalUnits.toLocaleString()}</span>
             </div>
             <div className="flex justify-between text-xs">
               <span className="text-muted-foreground">Subtotal</span>
-              <span className="text-foreground tabular-nums">
-                {fmt(totals.subtotal)}
-              </span>
+              <span className="text-foreground tabular-nums">{fmt(totals.subtotal)}</span>
             </div>
+            {form.shippingCost > 0 && (
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Shipping</span>
+                <span className="text-foreground tabular-nums">{formatOrderCurrency(form.shippingCost, form.shippingCurrency ?? "USD")}</span>
+              </div>
+            )}
             <div className="flex justify-between text-xs">
               <span className="text-muted-foreground">
-                Transaction Fee ({(TRANSACTION_FEE_RATE * 100).toFixed(4)}%)
+                Transaction Fee ({(TRANSACTION_FEE_RATE * 100).toFixed(2)}%)
               </span>
-              <span className="text-foreground tabular-nums">
-                {fmt(totals.transactionFee)}
-              </span>
+              <span className="text-foreground tabular-nums">{fmt(totals.transactionFee)}</span>
             </div>
             <div className="flex justify-between text-xs border-t border-border pt-1.5">
               <span className="font-semibold text-foreground">ORDER TOTAL</span>
-              <span className="font-semibold text-foreground tabular-nums">
-                {fmt(totals.orderTotal)}
-              </span>
+              <span className="font-semibold text-foreground tabular-nums">{fmt(totals.orderTotal)}</span>
             </div>
+            {isNonUSD && rate && (
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>USD Equivalent (rate: {rate})</span>
+                <span className="tabular-nums">{fmtUSD(toUSD(totals.orderTotal, cur, rate))}</span>
+              </div>
+            )}
+            {isNonUSD && rate && totals.totalUnits > 0 && (
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Per-unit landed cost (USD)</span>
+                <span className="tabular-nums">{fmtUSD(toUSD(totals.subtotal - totals.oneTimeFees, cur, rate) / totals.totalUnits)}</span>
+              </div>
+            )}
           </section>
 
           {/* ── Payments ──────────────────────────────────────────── */}
           <section className="space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Payments
-              </h3>
-              <button
-                type="button"
-                onClick={addPayment}
-                className="flex items-center gap-1 text-2xs text-primary hover:text-primary/80 transition"
-              >
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  className="h-3 w-3"
-                >
-                  <path d="M8 3v10M3 8h10" />
-                </svg>
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Payments</h3>
+              <button type="button" onClick={addPayment} className="flex items-center gap-1 text-2xs text-primary hover:text-primary/80 transition">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3"><path d="M8 3v10M3 8h10" /></svg>
                 Add Payment
               </button>
             </div>
             <div className="space-y-2">
               {payments.map((p, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-center gap-2 rounded-md border border-border px-2 py-1.5"
-                >
-                  <input
-                    value={p.label}
-                    onChange={(e) =>
-                      updatePayment(idx, "label", e.target.value)
-                    }
-                    className="flex-1 text-xs bg-transparent text-foreground outline-none min-w-0"
-                  />
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={p.amount}
-                    onChange={(e) =>
-                      updatePayment(
-                        idx,
-                        "amount",
-                        parseFloat(e.target.value) || 0
-                      )
-                    }
-                    className="w-24 text-xs text-right bg-transparent text-foreground outline-none tabular-nums"
-                  />
-                  <input
-                    type="date"
-                    value={p.paidDate ?? ""}
-                    onChange={(e) =>
-                      updatePayment(
-                        idx,
-                        "paidDate",
-                        e.target.value || null
-                      )
-                    }
-                    className="w-32 text-xs bg-transparent text-foreground outline-none"
-                  />
+                <div key={idx} className="flex items-center gap-2 rounded-md border border-border px-2 py-1.5">
+                  <input value={p.label} onChange={(e) => updatePayment(idx, "label", e.target.value)} className="flex-1 text-xs bg-transparent text-foreground outline-none min-w-0" />
+                  <input type="number" step="0.01" value={p.amount} onChange={(e) => updatePayment(idx, "amount", parseFloat(e.target.value) || 0)} className="w-28 text-xs text-right bg-transparent text-foreground outline-none tabular-nums" />
+                  {isNonUSD && rate && (
+                    <span className="text-2xs text-muted-foreground tabular-nums w-20 text-right">
+                      {fmtUSD(toUSD(p.amount, cur, rate))}
+                    </span>
+                  )}
+                  <input type="date" value={p.paidDate ?? ""} onChange={(e) => updatePayment(idx, "paidDate", e.target.value || null)} className="w-32 text-xs bg-transparent text-foreground outline-none" />
                 </div>
               ))}
             </div>
-            <div
-              className={cn(
-                "flex justify-between text-xs font-semibold pt-1",
-                balance > 0.01 ? "text-red-400" : "text-green-400"
-              )}
-            >
+            <div className={cn("flex justify-between text-xs font-semibold pt-1", balance > 0.01 ? "text-red-400" : "text-green-400")}>
               <span>Balance</span>
               <span className="tabular-nums">{fmt(balance)}</span>
             </div>
@@ -595,9 +521,7 @@ function OrderDetailPanelInner({
 
           {/* ── Notes ─────────────────────────────────────────────── */}
           <section className="space-y-2">
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Notes
-            </h3>
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Notes</h3>
             <textarea
               value={form.notes ?? ""}
               onChange={(e) => updateField("notes", e.target.value || null)}
@@ -612,36 +536,13 @@ function OrderDetailPanelInner({
             {confirmDelete ? (
               <div className="flex items-center gap-2">
                 <span className="text-xs text-red-400">Delete this order?</span>
-                <button
-                  type="button"
-                  onClick={() => onDelete(order.id)}
-                  className="rounded-md bg-red-500/20 px-2.5 py-1 text-2xs font-medium text-red-400 hover:bg-red-500/30 transition"
-                >
-                  Yes
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirmDelete(false)}
-                  className="rounded-md px-2.5 py-1 text-2xs text-muted-foreground hover:text-foreground transition"
-                >
-                  No
-                </button>
+                <button type="button" onClick={() => onDelete(order.id)} className="rounded-md bg-red-500/20 px-2.5 py-1 text-2xs font-medium text-red-400 hover:bg-red-500/30 transition">Yes</button>
+                <button type="button" onClick={() => setConfirmDelete(false)} className="rounded-md px-2.5 py-1 text-2xs text-muted-foreground hover:text-foreground transition">No</button>
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={() => setConfirmDelete(true)}
-                className="text-2xs text-red-400 hover:text-red-300 transition"
-              >
-                Delete Order
-              </button>
+              <button type="button" onClick={() => setConfirmDelete(true)} className="text-2xs text-red-400 hover:text-red-300 transition">Delete Order</button>
             )}
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={saving}
-              className="rounded-md bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition disabled:opacity-50"
-            >
+            <button type="button" onClick={handleSave} disabled={saving} className="rounded-md bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition disabled:opacity-50">
               {saving ? "Saving..." : "Save"}
             </button>
           </div>
@@ -667,18 +568,10 @@ function OrderDetailPanelInner({
   );
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-2xs font-medium text-muted-foreground mb-1">
-        {label}
-      </label>
+      <label className="block text-2xs font-medium text-muted-foreground mb-1">{label}</label>
       {children}
     </div>
   );

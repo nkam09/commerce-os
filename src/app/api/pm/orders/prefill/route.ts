@@ -40,29 +40,27 @@ export async function GET() {
     }
 
     return apiSuccess({
-      supplier: "Ningbo Doublefly Import And Export Co., Ltd",
-      terms: [
-        "50/50 Upfront/Before Delivery",
-        "30/70 Upfront/Before Delivery",
-      ],
-      products: [
+      suppliers: [
         {
-          asin: "B07XYBW774",
-          description: "100 BC",
-          unitPrice: 4.365,
-          unit: "pc.",
+          name: "Ningbo Doublefly Import And Export Co., Ltd",
+          currency: "USD",
+          terms: [
+            "50/50 Upfront/Before Delivery",
+            "30/70 Upfront/Before Delivery",
+          ],
+          products: [
+            { asin: "B07XYBW774", description: "100 BC", unitPrice: 4.365, unit: "pc." },
+            { asin: "B0B27GRHFR", description: "50 BC", unitPrice: 2.65, unit: "pc." },
+            { asin: "B0D7NNL4BL", description: "20 BCL", unitPrice: 1.4, unit: "pc." },
+          ],
         },
         {
-          asin: "B0B27GRHFR",
-          description: "50 BC",
-          unitPrice: 2.65,
-          unit: "pc.",
-        },
-        {
-          asin: "B0D7NNL4BL",
-          description: "20 BCL",
-          unitPrice: 1.4,
-          unit: "pc.",
+          name: "TAISEI CO., LTD.",
+          currency: "JPY",
+          terms: ["T/T in advance"],
+          products: [
+            { asin: "B08H8PKF5W", description: "Conceptinks 3pcs marker set", unitPrice: 360, unit: "set" },
+          ],
         },
       ],
       estimates: { avgProductionDays, avgDeliveryDays },

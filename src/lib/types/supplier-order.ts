@@ -9,6 +9,7 @@ export type SupplierOrderItem = {
   quantity: number;
   unit: string;
   unitPrice: number;
+  isOneTimeFee: boolean;
   sortOrder: number;
 };
 
@@ -30,6 +31,12 @@ export type SupplierOrderData = {
   amazonOrderId: string | null;
   amazonRefId: string | null;
   terms: string;
+  currency: string;
+  exchangeRate: number | null;
+  shippingCost: number;
+  shippingCurrency: string;
+  shipToAddress: string | null;
+  shipMethod: string | null;
   estProductionDays: number | null;
   estDeliveryDays: number | null;
   actProductionEnd: string | null;
@@ -42,8 +49,9 @@ export type SupplierOrderData = {
   updatedAt: string;
 };
 
-export type PrefillData = {
-  supplier: string;
+export type SupplierTemplate = {
+  name: string;
+  currency: string;
   terms: string[];
   products: {
     asin: string;
@@ -51,6 +59,10 @@ export type PrefillData = {
     unitPrice: number;
     unit: string;
   }[];
+};
+
+export type PrefillData = {
+  suppliers: SupplierTemplate[];
   estimates: {
     avgProductionDays: number;
     avgDeliveryDays: number;
@@ -65,18 +77,54 @@ export const ORDER_STATUSES = [
   "Cancelled",
 ] as const;
 
+export const CURRENCIES = ["USD", "JPY", "EUR", "CNY"] as const;
+
+export const CURRENCY_SYMBOLS: Record<string, string> = {
+  USD: "$",
+  JPY: "¥",
+  EUR: "€",
+  CNY: "¥",
+};
+
+export const DEFAULT_EXCHANGE_RATES: Record<string, number> = {
+  USD: 1.0,
+  JPY: 0.006667,
+  CNY: 0.1389,
+  EUR: 1.08,
+};
+
+export const SHIP_METHODS = ["SEA", "AIR", "EXPRESS"] as const;
+
 export const TRANSACTION_FEE_RATE = 0.029901;
 
 export function calculateOrderTotals(items: SupplierOrderItem[]) {
-  const totalUnits = items.reduce((s, i) => s + i.quantity, 0);
+  const productItems = items.filter((i) => !i.isOneTimeFee);
+  const feeItems = items.filter((i) => i.isOneTimeFee);
+  const totalUnits = productItems.reduce((s, i) => s + i.quantity, 0);
   const subtotal = items.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
   const transactionFee = subtotal * TRANSACTION_FEE_RATE;
   const orderTotal = subtotal + transactionFee;
-  return { totalUnits, subtotal, transactionFee, orderTotal };
+  const oneTimeFees = feeItems.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
+  return { totalUnits, subtotal, transactionFee, orderTotal, oneTimeFees };
+}
+
+export function formatOrderCurrency(amount: number, currency: string): string {
+  const sym = CURRENCY_SYMBOLS[currency] ?? "$";
+  if (currency === "JPY") {
+    return `${sym}${Math.round(amount).toLocaleString("en-US")}`;
+  }
+  return `${sym}${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+export function toUSD(amount: number, currency: string, exchangeRate: number | null): number {
+  if (currency === "USD") return amount;
+  return amount * (exchangeRate ?? DEFAULT_EXCHANGE_RATES[currency] ?? 1);
 }
 
 export function parseTermsSplit(terms: string): number {
   // "50/50 Upfront/Before Delivery" → 50, "30/70 Upfront/Before Delivery" → 30
+  // "T/T in advance" → 100%
+  if (terms.toLowerCase().includes("t/t in advance")) return 1.0;
   const match = terms.match(/^(\d+)\//);
   return match ? parseInt(match[1], 10) / 100 : 0.5;
 }

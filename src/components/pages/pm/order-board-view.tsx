@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { cn } from "@/lib/utils/cn";
 import type { SupplierOrderData } from "@/lib/types/supplier-order";
-import { calculateOrderTotals } from "@/lib/types/supplier-order";
+import { calculateOrderTotals, formatOrderCurrency, toUSD } from "@/lib/types/supplier-order";
 
 type OrderBoardViewProps = {
   orders: SupplierOrderData[];
@@ -20,7 +20,7 @@ const STATUS_COLORS: Record<string, string> = {
   Cancelled: "bg-red-500/20 text-red-400",
 };
 
-const fmt = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtUSD = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export function OrderBoardView({ orders, onOrderClick }: OrderBoardViewProps) {
   const grouped = useMemo(() => {
@@ -61,10 +61,11 @@ export function OrderBoardView({ orders, onOrderClick }: OrderBoardViewProps) {
           <div className="space-y-2">
             {(grouped[col] ?? []).map((order) => {
               const totals = calculateOrderTotals(order.lineItems);
-              const totalUnits = order.lineItems.reduce(
-                (s, i) => s + i.quantity,
-                0
-              );
+              const totalUnits = order.lineItems
+                .filter((i) => !i.isOneTimeFee)
+                .reduce((s, i) => s + i.quantity, 0);
+              const cur = order.currency ?? "USD";
+              const isNonUSD = cur !== "USD";
               return (
                 <button
                   key={order.id}
@@ -85,8 +86,13 @@ export function OrderBoardView({ orders, onOrderClick }: OrderBoardViewProps) {
                   </div>
                   <div className="flex items-center gap-3 text-2xs">
                     <span className="text-foreground tabular-nums font-medium">
-                      {fmt(totals.orderTotal)}
+                      {formatOrderCurrency(totals.orderTotal, cur)}
                     </span>
+                    {isNonUSD && order.exchangeRate && (
+                      <span className="text-muted-foreground tabular-nums">
+                        ({fmtUSD(toUSD(totals.orderTotal, cur, order.exchangeRate))})
+                      </span>
+                    )}
                     <span className="text-muted-foreground tabular-nums">
                       {totalUnits.toLocaleString()} units
                     </span>
