@@ -23,6 +23,7 @@ import type {
   KeywordDetailRow,
 } from "@/lib/services/keyword-service";
 import { useBrandStore } from "@/lib/stores/brand-store";
+import { AIInsightBanner } from "@/components/pages/dashboard/ai-insight-banner";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -721,6 +722,9 @@ export function KeywordsPageV2() {
 
   return (
     <div className="space-y-6 px-6 py-5">
+      {/* AI Insight */}
+      <AIInsightBanner page="keywords" />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-foreground">Keywords</h1>

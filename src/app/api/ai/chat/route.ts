@@ -1,67 +1,144 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
+import { requireUser } from "@/lib/auth/require-user";
+import { prisma } from "@/lib/db/prisma";
+import { toNum } from "@/lib/utils/math";
+import { todayUtc, daysAgo } from "@/lib/utils/dates";
 
-const SYSTEM_PROMPT = `You are an Amazon FBA expert analyst embedded in Commerce OS. You have access to the seller's real business data. Answer questions with specific numbers, identify problems, suggest actions. Be direct and data-driven. When referencing metrics, always include the time period. Format dollar amounts and percentages precisely.`;
+const SYSTEM_PROMPT = `You are an expert Amazon FBA business analyst embedded in Commerce OS, a dashboard for Amazon sellers. You have access to the seller's REAL business data shown below. Answer questions with specific numbers from the data. Be concise, direct, and actionable. When you don't have enough data to answer, say so. Format responses with markdown for readability.`;
 
-function buildContextBlock(page: string) {
-  return `
---- SELLER DASHBOARD CONTEXT (Last 30 Days) ---
+// ─── Build real context from database ──────────────────────────────────────
 
-**Revenue & Profitability**
-- Total Revenue: $11,642.38
-- Total Profit: $3,218.74 (27.6% margin)
-- Total Orders: 487
-- Units Sold: 1,124
-- Refund Rate: 3.2%
+async function buildRealContext(userId: string, page: string): Promise<string> {
+  const start = daysAgo(29);
+  const today = todayUtc();
 
-**Advertising (PPC)**
-- Total Ad Spend: $948.22
-- ACOS: 22.4%
-- TACOS: 8.1%
-- Total Ad Sales: $4,232.10
-- Impressions: 284,320
-- Clicks: 3,847 (1.35% CTR)
+  const products = await prisma.product.findMany({
+    where: { userId, status: "ACTIVE" },
+    select: {
+      id: true, asin: true, title: true, brand: true,
+      setting: { select: { landedCogs: true } },
+      inventorySnapshots: {
+        orderBy: { snapshotDate: "desc" },
+        take: 1,
+        select: { available: true, reserved: true, inbound: true },
+      },
+    },
+  });
 
-**Top Products Performance (Last 30 Days)**
-1. Eco-Friendly Water Bottle 50-pack — Revenue: $4,280, Profit: $1,412, Units: 214, ACOS: 18.2%
-2. Eco-Friendly Water Bottle 100-pack — Revenue: $3,640, Profit: $982, Units: 91, ACOS: 24.8%
-3. Bamboo Utensil Set — Revenue: $2,122, Profit: $548, Units: 318, ACOS: 28.1%
-4. Organic Cotton Tote Bag — Revenue: $1,600, Profit: $276, Units: 501, ACOS: 19.4%
+  if (products.length === 0) {
+    return `--- SELLER DATA (Last 30 Days) ---\nNo active products found.\n--- END DATA ---`;
+  }
 
-**PPC Campaigns**
-- "Water Bottle - Exact" — Spend: $312, Sales: $1,890, ACOS: 16.5% (performing well)
-- "Water Bottle - Broad" — Spend: $245, Sales: $1,024, ACOS: 23.9% (moderate)
-- "Bamboo Utensils - Auto" — Spend: $198, Sales: $520, ACOS: 38.1% (needs review)
-- "Tote Bag - Phrase" — Spend: $112, Sales: $482, ACOS: 23.2% (moderate)
-- "Brand Defense" — Spend: $81, Sales: $316, ACOS: 25.6% (acceptable)
+  const productIds = products.map(p => p.id);
 
-**Inventory Levels**
-- Eco-Friendly Water Bottle 50-pack: 342 units (est. 48 days of stock)
-- Eco-Friendly Water Bottle 100-pack: 87 units (est. 29 days — LOW)
-- Bamboo Utensil Set: 510 units (est. 48 days of stock)
-- Organic Cotton Tote Bag: 1,204 units (est. 72 days of stock — overstocked)
+  const [salesAgg, feesAgg, adsAgg, topCampaigns] = await Promise.all([
+    prisma.dailySale.groupBy({
+      by: ["productId"],
+      where: { productId: { in: productIds }, date: { gte: start, lte: today } },
+      _sum: { grossSales: true, unitsSold: true, refundAmount: true, refundCount: true, orderCount: true },
+    }),
+    prisma.dailyFee.groupBy({
+      by: ["productId"],
+      where: { productId: { in: productIds }, date: { gte: start, lte: today } },
+      _sum: { referralFee: true, fbaFee: true, storageFee: true, awdStorageFee: true, otherFees: true, reimbursement: true },
+    }),
+    prisma.dailyAd.groupBy({
+      by: ["productId"],
+      where: { productId: { in: productIds }, date: { gte: start, lte: today } },
+      _sum: { spend: true, attributedSales: true, clicks: true, impressions: true, orders: true },
+    }),
+    prisma.dailyAd.groupBy({
+      by: ["campaignName"],
+      where: { productId: { in: productIds }, date: { gte: start, lte: today }, campaignName: { not: null } },
+      _sum: { spend: true, attributedSales: true, clicks: true, impressions: true },
+      orderBy: { _sum: { spend: "desc" } },
+      take: 10,
+    }),
+  ]);
 
-**Current Page Context**: User is viewing the "${page}" page.
---- END CONTEXT ---`;
+  const salesMap = new Map(salesAgg.map(s => [s.productId, s._sum]));
+  const feesMap = new Map(feesAgg.map(f => [f.productId, f._sum]));
+  const adsMap = new Map(adsAgg.map(a => [a.productId, a._sum]));
+
+  let totalRevenue = 0, totalProfit = 0, totalOrders = 0, totalUnits = 0;
+  let totalAdSpend = 0, totalAdSales = 0, totalImpressions = 0, totalClicks = 0;
+  let totalRefunds = 0, totalFees = 0, totalCogs = 0;
+
+  const productLines: string[] = [];
+
+  for (const p of products) {
+    const sales = salesMap.get(p.id);
+    const fees = feesMap.get(p.id);
+    const ads = adsMap.get(p.id);
+    const inv = p.inventorySnapshots[0];
+    const cogs = toNum(p.setting?.landedCogs);
+
+    const gross = toNum(sales?.grossSales);
+    const units = sales?.unitsSold ?? 0;
+    const orders = sales?.orderCount ?? 0;
+    const refunds = toNum(sales?.refundAmount);
+    const feesTotal = toNum(fees?.referralFee) + toNum(fees?.fbaFee) + toNum(fees?.storageFee) + toNum(fees?.awdStorageFee) + toNum(fees?.otherFees) - toNum(fees?.reimbursement);
+    const adSpend = toNum(ads?.spend);
+    const adSales = toNum(ads?.attributedSales);
+    const cogsTotal = cogs * units;
+    const profit = gross - refunds - feesTotal - cogsTotal - adSpend;
+    const acos = adSales > 0 ? (adSpend / adSales * 100) : null;
+
+    const available = (inv?.available ?? 0) + (inv?.inbound ?? 0);
+    const avgDaily = units / 30;
+    const daysLeft = avgDaily > 0 ? Math.round(available / avgDaily) : null;
+
+    totalRevenue += gross;
+    totalProfit += profit;
+    totalOrders += orders;
+    totalUnits += units;
+    totalAdSpend += adSpend;
+    totalAdSales += adSales;
+    totalImpressions += toNum(ads?.impressions);
+    totalClicks += toNum(ads?.clicks);
+    totalRefunds += refunds;
+    totalFees += feesTotal;
+    totalCogs += cogsTotal;
+
+    const shortTitle = p.title?.substring(0, 50) || p.asin;
+    productLines.push(`- ${shortTitle} (${p.asin}, ${p.brand ?? "Unknown"}): Revenue $${gross.toFixed(0)}, Profit $${profit.toFixed(0)}, Units ${units}, ACOS ${acos?.toFixed(1) ?? "N/A"}%, FBA Stock ${inv?.available ?? 0} (${daysLeft !== null ? daysLeft + "d" : "N/A"})`);
+  }
+
+  const campaignLines = topCampaigns.map(c => {
+    const spend = toNum(c._sum.spend);
+    const sales = toNum(c._sum.attributedSales);
+    const acos = sales > 0 ? (spend / sales * 100).toFixed(1) : "N/A";
+    return `- ${c.campaignName}: Spend $${spend.toFixed(0)}, Sales $${sales.toFixed(0)}, ACOS ${acos}%`;
+  });
+
+  const margin = totalRevenue > 0 ? (totalProfit / totalRevenue * 100).toFixed(1) : "0";
+  const tacos = totalRevenue > 0 ? (totalAdSpend / totalRevenue * 100).toFixed(1) : "0";
+  const overallAcos = totalAdSales > 0 ? (totalAdSpend / totalAdSales * 100).toFixed(1) : "0";
+  const ctr = totalImpressions > 0 ? (totalClicks / totalImpressions * 100).toFixed(2) : "0";
+
+  return `--- SELLER DATA (Last 30 Days) ---
+Revenue: $${totalRevenue.toFixed(0)} | Profit: $${totalProfit.toFixed(0)} (${margin}% margin) | Orders: ${totalOrders} | Units: ${totalUnits}
+Ad Spend: $${totalAdSpend.toFixed(0)} | ACOS: ${overallAcos}% | TACOS: ${tacos}% | Ad Sales: $${totalAdSales.toFixed(0)}
+Impressions: ${totalImpressions.toLocaleString()} | Clicks: ${totalClicks.toLocaleString()} | CTR: ${ctr}%
+Refunds: $${totalRefunds.toFixed(0)} | Amazon Fees: $${totalFees.toFixed(0)} | COGS: $${totalCogs.toFixed(0)}
+
+Products:
+${productLines.join("\n")}
+
+Top PPC Campaigns:
+${campaignLines.join("\n")}
+
+Current Page: User is viewing the "${page}" page.
+--- END DATA ---`;
 }
 
-const MOCK_RESPONSE = `Based on your last 30 days of data, here's a quick summary:
-
-**Revenue & Profit**
-- You generated **$11,642** in revenue with **$3,219 profit** (27.6% margin) — solid performance.
-
-**Top Concern: Inventory**
-- Your **100-pack Water Bottle** only has **29 days of stock** remaining. I'd recommend placing a restock order within the next week to avoid stockouts.
-- Meanwhile, the **Organic Cotton Tote Bag** is overstocked at 72 days — consider running a promotion.
-
-**PPC Action Items**
-- The **"Bamboo Utensils - Auto"** campaign has a **38.1% ACOS** — well above your target. Consider pausing underperforming keywords or reducing bids.
-- Your **"Water Bottle - Exact"** campaign is your best performer at **16.5% ACOS** — consider increasing budget here.
-
-Want me to dive deeper into any of these areas?`;
+// ─── POST handler ──────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   try {
+    const { userId } = await requireUser();
+
     const body = await req.json();
     const { message, context } = body as {
       message: string;
@@ -76,33 +153,24 @@ export async function POST(req: NextRequest) {
     }
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
+    const contextBlock = await buildRealContext(userId, context || "overview");
 
-    // If no API key, return a mock response so the panel works in development
     if (!apiKey) {
+      // No API key — return the raw context as a fallback so the panel isn't broken
+      const fallback = `I don't have an AI API key configured, but here's your real data:\n\n${contextBlock}`;
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
-        async start(controller) {
-          // Simulate streaming by sending chunks
-          const words = MOCK_RESPONSE.split(" ");
-          for (let i = 0; i < words.length; i++) {
-            const chunk = (i === 0 ? "" : " ") + words[i];
-            controller.enqueue(encoder.encode(chunk));
-            await new Promise((r) => setTimeout(r, 20));
-          }
+        start(controller) {
+          controller.enqueue(encoder.encode(fallback));
           controller.close();
         },
       });
-
       return new Response(stream, {
-        headers: {
-          "Content-Type": "text/plain; charset=utf-8",
-          "Cache-Control": "no-cache",
-        },
+        headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-cache" },
       });
     }
 
     const client = new Anthropic({ apiKey });
-    const contextBlock = buildContextBlock(context || "overview");
 
     const stream = await client.messages.stream({
       model: "claude-sonnet-4-20250514",
@@ -142,6 +210,9 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
+    if (error instanceof Error && error.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     console.error("[AI Chat] Error:", error);
     return NextResponse.json(
       { error: "Failed to process chat request" },

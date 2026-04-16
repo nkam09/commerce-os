@@ -6,10 +6,12 @@ import {
   getProductsInsight,
   getInventoryInsight,
   getCashflowInsight,
+  getPPCInsight,
+  getKeywordsInsight,
 } from "@/lib/services/ai-insight-service";
 
 /**
- * GET /api/dashboard/insight?page=dashboard|products|inventory|cashflow&brand=...
+ * GET /api/dashboard/insight?page=dashboard|products|inventory|cashflow|ppc|keywords&brand=...
  */
 export async function GET(req: NextRequest) {
   try {
@@ -27,6 +29,12 @@ export async function GET(req: NextRequest) {
         break;
       case "cashflow":
         message = await getCashflowInsight(userId, brand);
+        break;
+      case "ppc":
+        message = await getPPCInsight(userId, brand);
+        break;
+      case "keywords":
+        message = await getKeywordsInsight(userId, brand);
         break;
       default:
         message = await getDashboardInsight(userId, brand);

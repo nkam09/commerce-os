@@ -15,6 +15,7 @@ import { PPCChart } from "./ppc-chart";
 import { PPCSummaryPanel } from "./ppc-summary-panel";
 import { PPCFilterPanel, DEFAULT_FILTERS, type PPCFilters } from "./ppc-filters";
 import { CampaignDetailPanel } from "./campaign-detail-panel";
+import { AIInsightBanner } from "@/components/pages/dashboard/ai-insight-banner";
 import type { PPCSummaryMetrics, CampaignRow, PPCChartDataPoint, ByProductRow, CampaignProductBreakdown } from "@/lib/services/ppc-service";
 import { useBrandStore } from "@/lib/stores/brand-store";
 
@@ -284,6 +285,9 @@ export function PPCPage() {
 
   return (
     <div className="space-y-4 md:space-y-6 px-3 md:px-6 py-4 md:py-5">
+      {/* AI Insight */}
+      <AIInsightBanner page="ppc" />
+
       {/* Header */}
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <h1 className="text-lg md:text-xl font-bold text-foreground">PPC Dashboard</h1>

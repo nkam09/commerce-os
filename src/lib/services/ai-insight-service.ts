@@ -494,3 +494,168 @@ Rules:
   insightCache.set(cacheKey, { text, timestamp: Date.now() });
   return text;
 }
+
+// ─── PPC insight ───────────────────────────────────────────────────────────
+
+export async function getPPCInsight(userId: string, brand?: string): Promise<string> {
+  const cacheKey = `ppc:${userId}:${brand ?? "all"}`;
+  const cached = insightCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.text;
+  }
+
+  const start = daysAgo(29);
+  const today = todayUtc();
+
+  const products = await prisma.product.findMany({
+    where: { userId, status: { not: "ARCHIVED" }, ...(brand ? { brand } : {}) },
+    select: { id: true },
+  });
+  const productIds = products.map(p => p.id);
+  if (productIds.length === 0) return "No active products found.";
+
+  const [campaignAgg, totalAgg, salesAgg] = await Promise.all([
+    prisma.dailyAd.groupBy({
+      by: ["campaignName"],
+      where: { productId: { in: productIds }, date: { gte: start, lte: today }, campaignName: { not: null } },
+      _sum: { spend: true, attributedSales: true, clicks: true, impressions: true, orders: true },
+      orderBy: { _sum: { spend: "desc" } },
+      take: 15,
+    }),
+    prisma.dailyAd.aggregate({
+      where: { productId: { in: productIds }, date: { gte: start, lte: today } },
+      _sum: { spend: true, attributedSales: true, clicks: true, impressions: true, orders: true },
+    }),
+    prisma.dailySale.aggregate({
+      where: { productId: { in: productIds }, date: { gte: start, lte: today } },
+      _sum: { grossSales: true },
+    }),
+  ]);
+
+  const totalSpend = toNum(totalAgg._sum.spend);
+  const totalAdSales = toNum(totalAgg._sum.attributedSales);
+  const totalGross = toNum(salesAgg._sum.grossSales);
+
+  const dataSummary = {
+    period: "Last 30 days",
+    totals: {
+      adSpend: round(totalSpend),
+      adSales: round(totalAdSales),
+      acos: totalAdSales > 0 ? round(totalSpend / totalAdSales * 100, 1) : null,
+      tacos: totalGross > 0 ? round(totalSpend / totalGross * 100, 1) : null,
+      totalRevenue: round(totalGross),
+      clicks: totalAgg._sum.clicks ?? 0,
+      impressions: totalAgg._sum.impressions ?? 0,
+      orders: totalAgg._sum.orders ?? 0,
+    },
+    campaigns: campaignAgg.map(c => ({
+      name: c.campaignName,
+      spend: round(toNum(c._sum.spend)),
+      sales: round(toNum(c._sum.attributedSales)),
+      acos: toNum(c._sum.attributedSales) > 0
+        ? round(toNum(c._sum.spend) / toNum(c._sum.attributedSales) * 100, 1)
+        : null,
+      clicks: c._sum.clicks ?? 0,
+      orders: c._sum.orders ?? 0,
+    })),
+  };
+
+  const prompt = `You are an Amazon PPC specialist. Analyze the advertising data and provide 2-3 actionable insights about campaign performance, budget allocation, and ACOS optimization.
+
+Rules:
+- Maximum 2-3 sentences in a flowing paragraph
+- Flag campaigns with ACOS above 40%
+- Identify the best performing campaign and suggest increasing its budget
+- If TACOS is above 15%, flag it as a concern
+- Reference campaigns by their name
+- Be specific with numbers`;
+
+  const overallAcos = totalAdSales > 0 ? round(totalSpend / totalAdSales * 100, 1) : null;
+  const worstCampaign = dataSummary.campaigns.reduce<typeof dataSummary.campaigns[0] | null>(
+    (worst, c) => (c.acos !== null && (worst === null || (c.acos ?? 0) > (worst.acos ?? 0)) ? c : worst), null
+  );
+
+  const result = await callClaude(dataSummary, prompt);
+  const text = result ?? `Total ad spend: ${fmtCurrency(totalSpend)} with ${overallAcos !== null ? fmtPct(overallAcos) : "N/A"} ACOS.${worstCampaign && (worstCampaign.acos ?? 0) > 35 ? ` ${worstCampaign.name} has high ACOS at ${fmtPct(worstCampaign.acos ?? 0)} — consider optimizing bids or pausing underperformers.` : ""}`;
+
+  insightCache.set(cacheKey, { text, timestamp: Date.now() });
+  return text;
+}
+
+// ─── Keywords insight ──────────────────────────────────────────────────────
+
+export async function getKeywordsInsight(userId: string, brand?: string): Promise<string> {
+  const cacheKey = `keywords:${userId}:${brand ?? "all"}`;
+  const cached = insightCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.text;
+  }
+
+  const start = daysAgo(29);
+  const today = todayUtc();
+
+  const products = await prisma.product.findMany({
+    where: { userId, status: { not: "ARCHIVED" }, ...(brand ? { brand } : {}) },
+    select: { id: true },
+  });
+  const productIds = products.map(p => p.id);
+  if (productIds.length === 0) return "No active products found.";
+
+  const [topKeywords, totalAgg] = await Promise.all([
+    prisma.dailyKeyword.groupBy({
+      by: ["keywordText", "matchType"],
+      where: { productId: { in: productIds }, date: { gte: start, lte: today }, keywordText: { not: null } },
+      _sum: { spend: true, attributedSales: true, clicks: true, impressions: true, orders: true },
+      orderBy: { _sum: { spend: "desc" } },
+      take: 15,
+    }),
+    prisma.dailyKeyword.aggregate({
+      where: { productId: { in: productIds }, date: { gte: start, lte: today } },
+      _sum: { spend: true, attributedSales: true, clicks: true, impressions: true, orders: true },
+    }),
+  ]);
+
+  const totalSpend = toNum(totalAgg._sum.spend);
+  const totalSales = toNum(totalAgg._sum.attributedSales);
+
+  const dataSummary = {
+    period: "Last 30 days",
+    totals: {
+      keywordSpend: round(totalSpend),
+      keywordSales: round(totalSales),
+      acos: totalSales > 0 ? round(totalSpend / totalSales * 100, 1) : null,
+      clicks: totalAgg._sum.clicks ?? 0,
+      impressions: totalAgg._sum.impressions ?? 0,
+      orders: totalAgg._sum.orders ?? 0,
+    },
+    topKeywords: topKeywords.map(k => ({
+      keyword: k.keywordText,
+      matchType: k.matchType,
+      spend: round(toNum(k._sum.spend)),
+      sales: round(toNum(k._sum.attributedSales)),
+      acos: toNum(k._sum.attributedSales) > 0
+        ? round(toNum(k._sum.spend) / toNum(k._sum.attributedSales) * 100, 1)
+        : null,
+      clicks: k._sum.clicks ?? 0,
+      orders: k._sum.orders ?? 0,
+    })),
+  };
+
+  const prompt = `You are an Amazon keyword optimization specialist. Analyze the keyword performance data and provide 2-3 actionable insights about keyword strategy, match types, and optimization opportunities.
+
+Rules:
+- Maximum 2-3 sentences in a flowing paragraph
+- Flag keywords with high spend but no orders (wasted spend)
+- Identify top converting keywords to double down on
+- Suggest match type strategies (exact vs broad vs phrase)
+- Be specific with keyword names and numbers`;
+
+  const overallAcos = totalSales > 0 ? round(totalSpend / totalSales * 100, 1) : null;
+  const highSpendNoOrders = dataSummary.topKeywords.filter(k => k.spend > 10 && k.orders === 0);
+
+  const result = await callClaude(dataSummary, prompt);
+  const text = result ?? `${topKeywords.length} active keywords with ${overallAcos !== null ? fmtPct(overallAcos) : "N/A"} overall ACOS.${highSpendNoOrders.length > 0 ? ` ${highSpendNoOrders.length} keyword${highSpendNoOrders.length > 1 ? "s have" : " has"} spend with no conversions — consider negating or reducing bids.` : ""}`;
+
+  insightCache.set(cacheKey, { text, timestamp: Date.now() });
+  return text;
+}
