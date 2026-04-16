@@ -36,11 +36,11 @@ export function OrderBoardView({ orders, onOrderClick }: OrderBoardViewProps) {
   }, [orders]);
 
   return (
-    <div className="flex gap-4 overflow-x-auto pb-4">
+    <div className="flex gap-4 overflow-x-auto pb-4 pr-4 snap-x snap-mandatory md:snap-none">
       {COLUMNS.map((col) => (
         <div
           key={col}
-          className="min-w-[280px] max-w-[320px] flex-shrink-0 space-y-2"
+          className="w-[85vw] max-w-[300px] sm:w-[300px] flex-shrink-0 space-y-2 snap-start"
         >
           {/* Column header */}
           <div className="flex items-center gap-2 px-2 py-1.5">

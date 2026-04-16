@@ -191,14 +191,14 @@ export function BoardView({ tasks, statuses, onTaskClick, onStatusChange }: Boar
   }, []);
 
   return (
-    <div className="flex gap-3 overflow-x-auto pb-4 h-full">
+    <div className="flex gap-3 overflow-x-auto pb-4 pr-4 h-full snap-x snap-mandatory md:snap-none">
       {statuses.map((status) => {
         const columnTasks = tasksByStatus[status] ?? [];
         return (
           <div
             key={status}
             className={cn(
-              "min-w-[280px] max-w-[320px] bg-card/50 rounded-lg p-2 flex flex-col flex-shrink-0",
+              "w-[85vw] max-w-[300px] sm:w-[300px] bg-card/50 rounded-lg p-2 flex flex-col flex-shrink-0 snap-start",
               dragOverStatus === status && "ring-1 ring-primary/50"
             )}
             onDrop={(e) => handleDrop(e, status)}
