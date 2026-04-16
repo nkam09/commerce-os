@@ -183,7 +183,7 @@ export async function getTrendsViewData(userId: string, brand?: string): Promise
 
   // Get products for the user
   const products = await prisma.product.findMany({
-    where: { userId, status: "ACTIVE" },
+    where: { ...productWhere, status: "ACTIVE" },
     select: { id: true, title: true, asin: true, sku: true, imageUrl: true },
   });
 
