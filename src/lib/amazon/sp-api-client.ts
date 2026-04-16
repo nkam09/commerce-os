@@ -56,7 +56,7 @@ export type SpOrderItemsResponse = {
   AmazonOrderId: string;
 };
 
-type SpShipmentItem = {
+export type SpShipmentItem = {
   ASIN?: string;
   SellerSKU?: string;
   QuantityShipped?: number;

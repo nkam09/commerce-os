@@ -249,6 +249,28 @@ model DailyFee {
   @@map("daily_fees")
 }
 
+/// Tracks exactly which fees each settlement contributed to daily_fees.
+/// Enables idempotent replays: if a contribution already exists for
+/// (settlementId, productId, marketplaceId, date), the fee write is skipped.
+/// Settlement corrections use a different settlementId and ADD normally.
+model SettlementFeeContribution {
+  id            String   @id @default(cuid())
+  settlementId  String
+  productId     String
+  marketplaceId String
+  date          DateTime @db.Date
+  storageFee    Decimal  @default(0) @db.Decimal(14, 4)
+  awdStorageFee Decimal  @default(0) @db.Decimal(14, 4)
+  otherFees     Decimal  @default(0) @db.Decimal(14, 4)
+  reimbursement Decimal  @default(0) @db.Decimal(14, 4)
+  createdAt     DateTime @default(now())
+
+  @@unique([settlementId, productId, marketplaceId, date])
+  @@index([settlementId])
+  @@index([productId, date])
+  @@map("settlement_fee_contributions")
+}
+
 model DailyAd {
   id              String   @id @default(cuid())
   productId       String

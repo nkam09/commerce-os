@@ -39,11 +39,16 @@
  *
  * Why track processedSettlementIds:
  *   Phase 3 (settlement fees) and Phase 5 (reimbursements) use add-to-
- *   existing semantics, which are NOT idempotent. To make the cursor 24h
- *   rewind safe, we track every settlement-id we've already processed and
- *   skip it on the next run.
- *   The list is naturally bounded: we only keep IDs that still appear in
- *   the current listing window (≤ 90 days), so old entries self-prune.
+ *   existing semantics. The processedSettlementIds cursor provides a
+ *   first-level dedup for the 24h rewind window. As a second safety layer,
+ *   the settlement_fee_contributions table tracks per-settlement, per-row
+ *   contributions — if a settlement already wrote fees for a given
+ *   (productId, marketplaceId, date), the write is skipped even if the
+ *   cursor was cleared. This makes fix scripts, replays, and settlement
+ *   corrections safe.
+ *   The processedSettlementIds list is naturally bounded: we only keep IDs
+ *   that still appear in the current listing window (≤ 90 days), so old
+ *   entries self-prune.
  *
  * IMPORTANT: Two-phase approach — all reports are downloaded and parsed first,
  * then all rows are written, preventing partial overwrites.
@@ -72,6 +77,41 @@ import type { JobContext, JobResult } from "@/lib/jobs/job-types";
 const JOB_NAME = "sync-settlement-refunds";
 
 const REPORT_TYPE = "GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE";
+
+// Tagged row types — attach settlementId during collection so normalization
+// functions can check per-settlement contribution idempotency.
+type TaggedFeeRow = RawSettlementFeeRow & { settlementId: string };
+type TaggedReimbursementRow = RawSettlementReimbursementRow & { settlementId: string };
+
+/**
+ * Ensures the settlement_fee_contributions table exists.
+ * Uses CREATE TABLE IF NOT EXISTS so it's safe to call on every run.
+ */
+async function ensureContributionsTable(): Promise<void> {
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS settlement_fee_contributions (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      "settlementId" TEXT NOT NULL,
+      "productId" TEXT NOT NULL,
+      "marketplaceId" TEXT NOT NULL,
+      date DATE NOT NULL,
+      "storageFee" DECIMAL(14,4) DEFAULT 0,
+      "awdStorageFee" DECIMAL(14,4) DEFAULT 0,
+      "otherFees" DECIMAL(14,4) DEFAULT 0,
+      reimbursement DECIMAL(14,4) DEFAULT 0,
+      "createdAt" TIMESTAMP DEFAULT NOW(),
+      UNIQUE("settlementId", "productId", "marketplaceId", date)
+    )
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS idx_sfc_settlement
+      ON settlement_fee_contributions("settlementId")
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS idx_sfc_product_date
+      ON settlement_fee_contributions("productId", date)
+  `);
+}
 
 const INITIAL_LOOKBACK_DAYS = 90;
 
@@ -177,7 +217,7 @@ async function getFirstProductId(userId: string): Promise<string | null> {
 }
 
 /**
- * Upserts settlement fee data into DailyFee.
+ * Upserts settlement fee data into DailyFee — idempotent per-settlement.
  *
  * For rows WITH a SKU (disposal): resolves SKU → productId and adds fees
  * to the appropriate column of that product's DailyFee row.
@@ -194,11 +234,13 @@ async function getFirstProductId(userId: string): Promise<string | null> {
  *   otherFee        → DailyFee.otherFees
  *
  * Uses ADD semantics (existing value + new value) to avoid overwriting
- * fees written by sync-finances. For freshly-created rows, populates
- * only the settlement fee columns and zeros the rest.
+ * fees written by sync-finances. Idempotency is enforced via the
+ * settlement_fee_contributions table: if a (settlementId, productId,
+ * marketplaceId, date) row already exists, the fee write is skipped.
+ * Settlement corrections (different settlementId) ADD normally.
  */
 async function normalizeSettlementFeeRows(
-  rows: RawSettlementFeeRow[],
+  rows: TaggedFeeRow[],
   maps: LookupMaps,
   fallbackProductId: string | null
 ): Promise<SettlementFeeNormResult> {
@@ -210,6 +252,7 @@ async function normalizeSettlementFeeRows(
   let otherTotal = 0;
   let skippedUnknownMarketplace = 0;
   let skippedNoProduct = 0;
+  let skippedAlreadyContributed = 0;
 
   for (const row of rows) {
     let productId: string | undefined;
@@ -238,6 +281,22 @@ async function normalizeSettlementFeeRows(
 
     if (storageAdd === 0 && awdStorageAdd === 0 && otherAdd === 0) continue;
 
+    // ── Idempotency check: has this settlement already contributed fees
+    //    for this (productId, marketplaceId, date) combination? ──
+    const existingContrib = await prisma.$queryRawUnsafe<{ id: string }[]>(
+      `SELECT id FROM settlement_fee_contributions
+       WHERE "settlementId" = $1 AND "productId" = $2
+         AND "marketplaceId" = $3 AND date = $4
+       LIMIT 1`,
+      row.settlementId, productId, marketplaceId, row.date
+    );
+
+    if (existingContrib.length > 0) {
+      skippedAlreadyContributed++;
+      continue;
+    }
+
+    // ── Apply ADD semantics to daily_fees ──
     const existing = await prisma.dailyFee.findUnique({
       where: {
         productId_marketplaceId_date: {
@@ -247,11 +306,8 @@ async function normalizeSettlementFeeRows(
         },
       },
       select: {
-        referralFee: true,
-        fbaFee: true,
         storageFee: true,
         awdStorageFee: true,
-        returnProcessingFee: true,
         otherFees: true,
       },
     });
@@ -287,12 +343,30 @@ async function normalizeSettlementFeeRows(
       });
     }
 
+    // ── Record this settlement's contribution for future idempotency ──
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO settlement_fee_contributions
+         ("id", "settlementId", "productId", "marketplaceId", date,
+          "storageFee", "awdStorageFee", "otherFees", reimbursement)
+       VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6, $7, 0)
+       ON CONFLICT ("settlementId", "productId", "marketplaceId", date)
+       DO NOTHING`,
+      row.settlementId, productId, marketplaceId, row.date,
+      storageAdd, awdStorageAdd, otherAdd
+    );
+
     written++;
     storageTotal += row.storageFee;
     awdStorageTotal += row.awdStorageFee;
     disposalTotal += row.disposalFee;
     subscriptionTotal += row.subscriptionFee;
     otherTotal += row.otherFee;
+  }
+
+  if (skippedAlreadyContributed > 0) {
+    console.log(
+      `[sync-settlement-refunds] fee normalization: skipped ${skippedAlreadyContributed} already-contributed rows (idempotent)`
+    );
   }
 
   return {
@@ -376,16 +450,18 @@ type ReimbursementNormResult = {
 };
 
 /**
- * Upserts reversal reimbursement amounts into DailyFee.reimbursement.
+ * Upserts reversal reimbursement amounts into DailyFee.reimbursement — idempotent per-settlement.
  *
  * Uses ADD semantics (existing + new) so repeated applications within a
- * settlement window accumulate correctly. Dedup is handled by the
- * processedSettlementIds cursor above.
+ * settlement window accumulate correctly. Idempotency is enforced via the
+ * settlement_fee_contributions table: if the settlement already recorded a
+ * reimbursement contribution for (productId, marketplaceId, date), the write
+ * is skipped.
  *
  * Account-level reimbursements (no SKU) fall back to the first active product.
  */
 async function normalizeSettlementReimbursementRows(
-  rows: RawSettlementReimbursementRow[],
+  rows: TaggedReimbursementRow[],
   maps: LookupMaps,
   fallbackProductId: string | null
 ): Promise<ReimbursementNormResult> {
@@ -393,6 +469,7 @@ async function normalizeSettlementReimbursementRows(
   let reimbursementTotal = 0;
   let skippedUnknownMarketplace = 0;
   let skippedNoProduct = 0;
+  let skippedAlreadyContributed = 0;
 
   for (const row of rows) {
     let productId: string | undefined;
@@ -411,6 +488,23 @@ async function normalizeSettlementReimbursementRows(
 
     if (row.reimbursement === 0) continue;
 
+    // ── Idempotency check: has this settlement already contributed a
+    //    reimbursement for this (productId, marketplaceId, date)? ──
+    const existingContrib = await prisma.$queryRawUnsafe<{ reimbursement: number }[]>(
+      `SELECT reimbursement FROM settlement_fee_contributions
+       WHERE "settlementId" = $1 AND "productId" = $2
+         AND "marketplaceId" = $3 AND date = $4
+       LIMIT 1`,
+      row.settlementId, productId, marketplaceId, row.date
+    );
+
+    if (existingContrib.length > 0 && Number(existingContrib[0].reimbursement) !== 0) {
+      // This settlement already recorded a reimbursement contribution — skip
+      skippedAlreadyContributed++;
+      continue;
+    }
+
+    // ── Apply ADD semantics to daily_fees ──
     const existing = await prisma.dailyFee.findUnique({
       where: {
         productId_marketplaceId_date: { productId, marketplaceId, date: row.date },
@@ -444,8 +538,27 @@ async function normalizeSettlementReimbursementRows(
       });
     }
 
+    // ── Record/update this settlement's reimbursement contribution ──
+    // If a fee contribution row already exists (from Phase 3), update
+    // its reimbursement field. Otherwise, create a reimbursement-only row.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO settlement_fee_contributions
+         ("id", "settlementId", "productId", "marketplaceId", date,
+          "storageFee", "awdStorageFee", "otherFees", reimbursement)
+       VALUES (gen_random_uuid()::text, $1, $2, $3, $4, 0, 0, 0, $5)
+       ON CONFLICT ("settlementId", "productId", "marketplaceId", date)
+       DO UPDATE SET reimbursement = $5`,
+      row.settlementId, productId, marketplaceId, row.date, row.reimbursement
+    );
+
     written++;
     reimbursementTotal += row.reimbursement;
+  }
+
+  if (skippedAlreadyContributed > 0) {
+    console.log(
+      `[sync-settlement-refunds] reimbursement normalization: skipped ${skippedAlreadyContributed} already-contributed rows (idempotent)`
+    );
   }
 
   return { written, reimbursementTotal, skippedUnknownMarketplace, skippedNoProduct };
@@ -498,6 +611,7 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
   try {
     const client = getSpClientForUser();
     const maps = await loadLookupMaps(ctx.userId);
+    await ensureContributionsTable();
     const rawCursor = await getCursor(ctx.spConnectionId, JOB_NAME);
     const cursorData = parseCursor(rawCursor);
     const alreadyProcessedSet = new Set(cursorData.processedSettlementIds);
@@ -568,9 +682,9 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
     // naturally prunes old entries: anything outside the ≤90-day listing
     // window disappears from the cursor.
     const allRefundRows: RawSettlementRefundRow[] = [];
-    const allFeeRows: RawSettlementFeeRow[] = [];
+    const allFeeRows: TaggedFeeRow[] = [];
     const allPromoRows: RawSettlementPromoRow[] = [];
-    const allReimbursementRows: RawSettlementReimbursementRow[] = [];
+    const allReimbursementRows: TaggedReimbursementRow[] = [];
     const newProcessedIds: string[] = [];
     let totalLines = 0;
     let totalRefundLines = 0;
@@ -620,9 +734,12 @@ export async function syncSettlementRefundsJob(ctx: JobContext): Promise<JobResu
       );
 
       allRefundRows.push(...parsed.refundRows);
-      allFeeRows.push(...parsed.feeRows);
+      // Tag fee and reimbursement rows with settlementId for per-settlement
+      // idempotency tracking in the contribution table.
+      const sid = parsed.settlementId ?? report.reportId; // fallback to reportId if no settlementId
+      allFeeRows.push(...parsed.feeRows.map((r) => ({ ...r, settlementId: sid })));
       allPromoRows.push(...parsed.promoRows);
-      allReimbursementRows.push(...parsed.reimbursementRows);
+      allReimbursementRows.push(...parsed.reimbursementRows.map((r) => ({ ...r, settlementId: sid })));
       totalLines += parsed.totalLines;
       totalRefundLines += parsed.refundLines;
       totalFeeRowLines += parsed.feeRowLines;
