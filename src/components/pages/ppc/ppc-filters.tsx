@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { cn } from "@/lib/utils/cn";
+// cn import available if needed for conditional classes
 
 export interface PPCFilters {
   search: string;

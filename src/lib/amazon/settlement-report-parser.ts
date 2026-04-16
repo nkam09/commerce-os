@@ -417,7 +417,8 @@ export function parseSettlementReport(
 
   // Strip orderIds set from refund output
   const refundRows: RawSettlementRefundRow[] = Array.from(refundAgg.values()).map(
-    ({ orderIds: _orderIds, ...rest }) => rest
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    ({ orderIds: _, ...rest }) => rest
   );
 
   const feeRows: RawSettlementFeeRow[] = Array.from(feeRowAgg.values());

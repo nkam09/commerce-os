@@ -443,9 +443,10 @@ export class AdsApiClient {
 
         // Still PROCESSING / IN_PROGRESS / IN_QUEUE — wait before retrying
         await new Promise((r) => setTimeout(r, intervalMs));
-      } catch (err: any) {
+      } catch (err: unknown) {
         // Handle 429 throttling — retry with backoff instead of failing
-        if (err.message?.includes("429") || err.message?.includes("Throttled")) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        if (errMsg.includes("429") || errMsg.includes("Throttled")) {
           consecutiveThrottles++;
           const backoffMs = Math.min(intervalMs * Math.pow(2, consecutiveThrottles), 60_000);
           console.log(

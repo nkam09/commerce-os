@@ -59,7 +59,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     if (updates.order !== undefined) data.order = updates.order;
     if (updates.listId !== undefined) data.listId = updates.listId;
 
-    const updated = await prisma.pMTask.update({
+    await prisma.pMTask.update({
       where: { id },
       data,
       include: {

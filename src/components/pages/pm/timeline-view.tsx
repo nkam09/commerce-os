@@ -280,8 +280,8 @@ export function TimelineView({
       }
 
       if (task.startDate && task.dueDate) {
-        let start = parseDate(task.startDate);
-        let end = parseDate(task.dueDate);
+        const start = parseDate(task.startDate);
+        const end = parseDate(task.dueDate);
 
         let leftPx = daysBetween(rangeStart, start) * DAY_WIDTH;
         let rightPx = (daysBetween(rangeStart, end) + 1) * DAY_WIDTH;
@@ -475,7 +475,7 @@ export function TimelineView({
             style={{ scrollbarWidth: "none" }}
           >
             <div style={{ height: totalHeight }}>
-              {rows.map((row, i) => {
+              {rows.map((row) => {
                 if (row.type === "group-header") {
                   return (
                     <div
@@ -692,8 +692,6 @@ export function TimelineView({
                     const prodColor = order.actProductionEnd ? "#22c55e" : "#3b82f6";
                     const delColor = order.actDeliveryDate ? "#22c55e" : "#f97316";
 
-                    const barTop = currentY + (ROW_HEIGHT - BAR_HEIGHT) / 2;
-
                     return (
                       <div
                         key={`order-${order.id}`}
@@ -792,7 +790,6 @@ export function TimelineView({
                   if (!bar) return null;
 
                   const color = getBarColor(task);
-                  const barTop = currentY + (ROW_HEIGHT - BAR_HEIGHT) / 2;
 
                   if (bar.isSingle) {
                     // Diamond / circle marker

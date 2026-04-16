@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { toNum, safeDiv, round, calcReorder } from "@/lib/utils/math";
-import { daysAgo, todayUtc, toISODate } from "@/lib/utils/dates";
+import { daysAgo, todayUtc } from "@/lib/utils/dates";
 
 // ─── Inventory Planner Types ─────────────────────────────────────────────────
 

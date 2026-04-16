@@ -49,6 +49,7 @@ const MOCK_TASKS = [
 
 /* ─── POST handler ───────────────────────────────────── */
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export async function POST(_req: NextRequest) {
   try {
     try {

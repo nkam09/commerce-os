@@ -6,7 +6,6 @@ import { useApiData } from "@/hooks/use-api-data";
 import type {
   RankTrackingProduct,
   RankTrackingKeyword,
-  HeatmapCell,
 } from "@/lib/services/rank-tracking-service";
 
 // ─── Types for API response ─────────────────────────────────────────────────

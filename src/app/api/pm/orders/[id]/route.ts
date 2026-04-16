@@ -1,7 +1,6 @@
 import { requireUser } from "@/lib/auth/require-user";
 import {
   apiSuccess,
-  apiError,
   apiNotFound,
   apiServerError,
 } from "@/lib/utils/api";
@@ -70,7 +69,7 @@ export async function PUT(request: Request, ctx: Params) {
     } = body;
 
     // Update the order scalar fields
-    const order = await prisma.supplierOrder.update({
+    await prisma.supplierOrder.update({
       where: { id },
       data: {
         ...(orderNumber !== undefined && { orderNumber }),
@@ -248,6 +247,7 @@ function serializeOrder(order: any) {
       : null,
     status: order.status,
     notes: order.notes,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     lineItems: (order.lineItems ?? []).map((item: any) => ({
       id: item.id,
       asin: item.asin,
@@ -258,6 +258,7 @@ function serializeOrder(order: any) {
       isOneTimeFee: item.isOneTimeFee ?? false,
       sortOrder: item.sortOrder,
     })),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     payments: (order.payments ?? []).map((p: any) => ({
       id: p.id,
       label: p.label,
@@ -265,6 +266,7 @@ function serializeOrder(order: any) {
       paidDate: p.paidDate ? p.paidDate.toISOString().split("T")[0] : null,
       sortOrder: p.sortOrder,
     })),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     shipments: (order.shipments ?? []).map((s: any) => ({
       id: s.id,
       units: s.units,

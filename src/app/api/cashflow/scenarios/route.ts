@@ -16,7 +16,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const { userId } = await requireUser();
+    await requireUser();
     const body = await request.json();
     const { name, inputs } = body as { name: string; inputs: ScenarioInputs };
 

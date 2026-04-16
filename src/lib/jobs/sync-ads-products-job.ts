@@ -32,23 +32,7 @@ const MAX_DAYS_PER_CHUNK = 31;
 
 const REPORT_TYPE_ID = "spAdvertisedProduct";
 const REPORT_AD_PRODUCT = "SPONSORED_PRODUCTS";
-const REPORT_TIME_UNIT = "DAILY";
 const REPORT_FORMAT = "GZIP_JSON";
-const REPORT_GROUP_BY = ["advertiser"];
-const REPORT_COLUMNS = [
-  "date",
-  "campaignName",
-  "campaignId",
-  "adGroupName",
-  "adGroupId",
-  "advertisedAsin",
-  "advertisedSku",
-  "impressions",
-  "clicks",
-  "cost",
-  "purchases7d",
-  "sales7d",
-];
 
 function toDateStr(d: Date): string {
   return d.toISOString().slice(0, 10);

@@ -249,6 +249,7 @@ export function getPMPageDataSync(): PMPageData {
 }
 
 /** @deprecated Use getTasksForList(userId, listId) instead */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function getTasksForListSync(_listId: string): PMTaskData[] {
   return [];
 }
@@ -259,6 +260,7 @@ export function getAllTasksSync(): PMTaskData[] {
 }
 
 /** @deprecated Use getTaskById(userId, taskId) instead */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function getTaskByIdSync(_taskId: string): PMTaskData | undefined {
   return undefined;
 }

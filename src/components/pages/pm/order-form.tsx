@@ -46,9 +46,9 @@ export function OrderForm({ spaceId, onClose, onCreated }: OrderFormProps) {
   const [currency, setCurrency] = useState("USD");
   const [exchangeRate, setExchangeRate] = useState<number | null>(null);
   const [shipMethod, setShipMethod] = useState("");
-  const [shipToAddress, setShipToAddress] = useState("");
+  const [shipToAddress] = useState("");
   const [status, setStatus] = useState("Pending");
-  const [deliveryAddress, setDeliveryAddress] = useState("");
+  const [deliveryAddress] = useState("");
   const [items, setItems] = useState<SupplierOrderItem[]>([]);
   const [estProdDays, setEstProdDays] = useState(36);
   const [estDelDays, setEstDelDays] = useState(71);

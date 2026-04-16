@@ -93,6 +93,7 @@ type Props = {
 };
 
 export function ProductPerformanceTable({
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   initialProducts,
   onRowClick,
   className,

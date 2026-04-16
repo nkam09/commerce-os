@@ -52,6 +52,7 @@ function computeDates(preset: string): { from: string; to: string } {
 // ─── Formatters ──────────────────────────────────────────────────────────────
 
 const fmtD = (v: number) => `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const fmtP = (v: number | null) => v != null ? `${v.toFixed(1)}%` : "—";
 const fmtI = (v: number) => v.toLocaleString("en-US");
 const fmtR = (v: number | null) => v != null ? `${v.toFixed(2)}x` : "—";
@@ -215,7 +216,7 @@ export function PPCPage() {
   const toggleExpand = useCallback((name: string) => {
     setExpandedCampaigns((prev) => {
       const next = new Set(prev);
-      next.has(name) ? next.delete(name) : next.add(name);
+      if (next.has(name)) next.delete(name); else next.add(name);
       return next;
     });
   }, []);

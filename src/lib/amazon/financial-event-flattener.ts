@@ -15,7 +15,6 @@
 import type {
   SpFinancialEvents,
   SpShipmentEvent,
-  SpShipmentItem,
   SpServiceFeeEvent,
 } from "@/lib/amazon/sp-api-client";
 

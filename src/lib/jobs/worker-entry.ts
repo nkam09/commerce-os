@@ -35,7 +35,6 @@ import { syncOrdersJob } from "@/lib/jobs/sync-orders-job";
 import { syncInventoryJob } from "@/lib/jobs/sync-inventory-job";
 import { syncAdsProductsJob } from "@/lib/jobs/sync-ads-products-job";
 import { syncAdsKeywordsJob } from "@/lib/jobs/sync-ads-keywords-job";
-import { syncReturnsJob } from "@/lib/jobs/sync-returns-job";
 import { syncRefundEventsJob } from "@/lib/jobs/sync-refund-events-job";
 import { syncSettlementRefundsJob } from "@/lib/jobs/sync-settlement-refunds-job";
 import { runRecompute, refreshSyncHealth } from "@/lib/services/recompute-orchestration-service";

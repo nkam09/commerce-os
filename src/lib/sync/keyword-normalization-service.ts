@@ -78,10 +78,6 @@ export async function normalizeKeywordRows(
 
   // Build campaign→productId fallback map from daily_ads
   const campaignProductMap = new Map<string, string>();
-  const products = await prisma.product.findMany({
-    where: { userId: { in: [...maps.asinToProductId.values()].length > 0 ? undefined as never : [] } },
-    select: { id: true },
-  }).catch(() => []);
 
   // Get all productIds from the lookup maps
   const allProductIds = [...maps.asinToProductId.values()];

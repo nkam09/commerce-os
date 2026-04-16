@@ -212,7 +212,6 @@ function buildPeriodDefs(combo: TilesCombo = "default"): PeriodDef[] {
       const quartersResult: PeriodDef[] = [];
       for (let i = 0; i <= 2; i++) {
         const qIdx = currentQ - i;
-        const year = now.getUTCFullYear() + Math.floor(qIdx / 4) * (qIdx < 0 ? 1 : 0);
         const adjustedQ = ((qIdx % 4) + 4) % 4;
         const qStart = new Date(Date.UTC(
           qIdx < 0 ? now.getUTCFullYear() - 1 : now.getUTCFullYear(),

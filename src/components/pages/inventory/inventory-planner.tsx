@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useApiData } from "@/hooks/use-api-data";
-import { cn } from "@/lib/utils/cn";
 import { AIInsightBanner } from "@/components/pages/dashboard/ai-insight-banner";
 import { InventorySummaryCards } from "./inventory-summary-cards";
 import { InventoryTable } from "./inventory-table";
@@ -33,7 +32,7 @@ export function InventoryPlanner() {
   const [fulfillment, setFulfillment] = useState("all");
   const [marketplace, setMarketplace] = useState("us");
   const [showOOS, setShowOOS] = useState(false);
-  const [settingsProductId, setSettingsProductId] = useState<string | null>(null);
+  const [, setSettingsProductId] = useState<string | null>(null);
 
   const selectClass =
     "rounded-md border border-border bg-elevated px-2.5 py-1.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary cursor-pointer";
@@ -64,8 +63,6 @@ export function InventoryPlanner() {
   }
 
   if (!data) return null;
-
-  const lowStockCount = data.products.filter((p) => p.daysOfStockLeft < 30).length;
 
   return (
     <div className="space-y-4 p-6">

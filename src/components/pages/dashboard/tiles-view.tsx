@@ -66,7 +66,7 @@ const COMPARISON_MAPS: Record<TilesCombo, Record<string, string>> = {
 
 export function DashboardTilesView() {
   const [combo, setCombo] = useState<TilesCombo>("default");
-  const [drawerProductId, setDrawerProductId] = useState<string | null>(null);
+  const [, setDrawerProductId] = useState<string | null>(null);
   const [datePreset, setDatePreset] = useState<string>("30d");
   const [customFrom, setCustomFrom] = useState<Date | null>(null);
   const [customTo, setCustomTo] = useState<Date | null>(null);

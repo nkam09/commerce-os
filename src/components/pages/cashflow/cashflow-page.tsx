@@ -15,6 +15,7 @@ type Props = {
   initialData?: CashflowPageData;
 };
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function buildAIBannerMessage(cards: CashPositionCard[]): string {
   const cardMap = new Map(cards.map((c) => [c.label.toLowerCase(), c]));
 

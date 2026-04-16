@@ -5,7 +5,7 @@ import { AppTopbar } from "@/components/app/app-topbar";
 import { PageLoading } from "@/components/shared/loading";
 import { PageError } from "@/components/shared/error";
 import { EmptyState } from "@/components/shared/empty-state";
-import { StatusBadge, syncStatusBadge } from "@/components/shared/status-badge";
+import { syncStatusBadge } from "@/components/shared/status-badge";
 import { formatDate } from "@/lib/utils/formatters";
 import { formatNumber } from "@/lib/utils/formatters";
 

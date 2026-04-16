@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback } from "react";
 import { cn } from "@/lib/utils/cn";
-import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils/formatters";
+import { formatCurrency, formatNumber } from "@/lib/utils/formatters";
 import type { InventoryProductRow } from "@/lib/services/inventory-service";
 
 type Props = {

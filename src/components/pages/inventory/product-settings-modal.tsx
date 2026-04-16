@@ -27,6 +27,7 @@ const inputCls =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-primary/20";
 const labelCls = "block text-xs text-muted-foreground mb-1";
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function ProductSettingsModal({ open, onClose, productId: _productId, productTitle }: Props) {
   const [tab, setTab] = useState<Tab>("Manufacturing & Logistics");
 

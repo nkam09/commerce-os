@@ -183,7 +183,8 @@ function serializeOrder(order: any) {
       : null,
     status: order.status,
     notes: order.notes,
-    lineItems: order.lineItems.map((item: any) => ({
+    lineItems: order.lineItems.map(// eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (item: any) => ({
       id: item.id,
       asin: item.asin,
       description: item.description,
@@ -193,14 +194,16 @@ function serializeOrder(order: any) {
       isOneTimeFee: item.isOneTimeFee ?? false,
       sortOrder: item.sortOrder,
     })),
-    payments: order.payments.map((p: any) => ({
+    payments: order.payments.map(// eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (p: any) => ({
       id: p.id,
       label: p.label,
       amount: Number(p.amount),
       paidDate: p.paidDate ? p.paidDate.toISOString().split("T")[0] : null,
       sortOrder: p.sortOrder,
     })),
-    shipments: (order.shipments ?? []).map((s: any) => ({
+    shipments: (order.shipments ?? []).map(// eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (s: any) => ({
       id: s.id,
       units: s.units,
       destination: s.destination,

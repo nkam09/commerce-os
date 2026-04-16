@@ -84,7 +84,7 @@ async function apiDelete(url: string): Promise<boolean> {
 }
 
 export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
-  const { data: apiData, isLoading, refetch } = useApiData<PMPageData>(
+  const { data: apiData, isLoading } = useApiData<PMPageData>(
     initialData ? null : "/api/pm",
   );
 
@@ -202,7 +202,7 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
     }
     // Try to find space from selected order
     if (selectedOrderId) {
-      for (const [spaceId, orders] of Object.entries(ordersBySpace)) {
+      for (const [, orders] of Object.entries(ordersBySpace)) {
         if (orders.some((o) => o.id === selectedOrderId)) {
           return orders;
         }

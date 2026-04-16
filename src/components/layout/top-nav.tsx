@@ -19,7 +19,8 @@ const UserButton = dynamic(
 class ClerkSafe extends Component<{ children: ReactNode }, { hasError: boolean }> {
   state = { hasError: false };
   static getDerivedStateFromError() { return { hasError: true }; }
-  componentDidCatch(_: Error, __: ErrorInfo) { /* silently swallow */ }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  componentDidCatch(_err: Error, _info: ErrorInfo) { /* silently swallow */ }
   render() {
     if (this.state.hasError) {
       return (

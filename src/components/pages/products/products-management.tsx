@@ -447,8 +447,6 @@ export function ProductsManagement({ initialData }: { initialData?: ProductsPage
 
   if (!data) return null;
 
-  const missingCogsCount = data.products.filter((p) => p.cogs === 0).length;
-
   return (
     <div className="space-y-4 p-6">
      <AIInsightBanner page="products" />

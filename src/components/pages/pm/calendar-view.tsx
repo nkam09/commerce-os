@@ -128,7 +128,6 @@ function formatWeekRange(start: Date): string {
 function buildMonthGrid(year: number, month: number): CalendarDay[] {
   const days: CalendarDay[] = [];
   const firstOfMonth = new Date(year, month, 1);
-  const lastOfMonth = new Date(year, month + 1, 0);
 
   // Find the Monday before or on the first of the month
   const gridStart = startOfWeek(firstOfMonth);

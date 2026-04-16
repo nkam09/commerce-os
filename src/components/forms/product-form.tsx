@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useApiMutation } from "@/hooks/use-api-data";
 import { Button } from "@/components/shared/button";
-import { FormField, FormRow, Input, Textarea, Select } from "@/components/shared/form-fields";
+import { FormField, FormRow, Input, Textarea } from "@/components/shared/form-fields";
 
 // ─── Create Product Form ──────────────────────────────────────────────────────
 
