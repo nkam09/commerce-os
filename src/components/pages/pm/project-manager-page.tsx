@@ -324,9 +324,18 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
         supplier: updated.supplier,
         orderDate: updated.orderDate,
         deliveryAddress: updated.deliveryAddress,
+        shipToAddress: updated.shipToAddress,
         amazonOrderId: updated.amazonOrderId,
         amazonRefId: updated.amazonRefId,
         terms: updated.terms,
+        currency: updated.currency,
+        exchangeRate: updated.exchangeRate,
+        shippingCost: updated.shippingCost,
+        shippingCurrency: updated.shippingCurrency,
+        shipMethod: updated.shipMethod,
+        transactionFeePct: updated.transactionFeePct,
+        warehouseName: updated.warehouseName,
+        totalUnitsReceived: updated.totalUnitsReceived,
         estProductionDays: updated.estProductionDays,
         estDeliveryDays: updated.estDeliveryDays,
         actProductionEnd: updated.actProductionEnd,
@@ -339,17 +348,27 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
           quantity: item.quantity,
           unit: item.unit,
           unitPrice: item.unitPrice,
+          isOneTimeFee: item.isOneTimeFee,
         })),
         payments: updated.payments.map((p) => ({
           label: p.label,
           amount: p.amount,
           paidDate: p.paidDate,
         })),
+        shipments: updated.shipments.map((s) => ({
+          units: s.units,
+          destination: s.destination,
+          amazonShipId: s.amazonShipId,
+          shipDate: s.shipDate,
+          receivedDate: s.receivedDate,
+          status: s.status,
+          notes: s.notes,
+          sortOrder: s.sortOrder,
+        })),
       }),
     });
     const json = await res.json();
     if (json.ok) {
-      // Update local state
       setOrdersBySpace((prev) => ({
         ...prev,
         [updated.spaceId]: (prev[updated.spaceId] ?? []).map((o) =>
