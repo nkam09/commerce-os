@@ -329,34 +329,90 @@ export function PPCPage() {
       {/* Tabs + Table */}
       <div className="rounded-lg border border-border bg-card overflow-hidden">
         {/* Tab bar */}
-        <div className="flex items-center justify-between border-b border-border px-4">
-          <div className="flex">
-            {TABS.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => { setActiveTab(t.id); setSorting([{ id: "adSpend", desc: true }]); setExpandedCampaigns(new Set()); }}
-                className={cn(
-                  "px-4 py-3 text-xs font-medium border-b-2 transition-colors",
-                  activeTab === t.id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {t.label}
-                {data?.tab?.totalCount != null && activeTab === t.id && (
-                  <span className="ml-1.5 text-[10px] text-muted-foreground">({data.tab.totalCount})</span>
-                )}
-              </button>
-            ))}
+        <div className="flex items-center justify-between border-b border-border px-4 gap-2">
+          <div className="overflow-x-auto -mb-px">
+            <div className="flex whitespace-nowrap">
+              {TABS.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => { setActiveTab(t.id); setSorting([{ id: "adSpend", desc: true }]); setExpandedCampaigns(new Set()); }}
+                  className={cn(
+                    "px-3 sm:px-4 py-3 text-xs font-medium border-b-2 transition-colors",
+                    activeTab === t.id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {t.id === "allperiods" ? <><span className="hidden sm:inline">All </span>Periods</> : t.label}
+                  {data?.tab?.totalCount != null && activeTab === t.id && (
+                    <span className="ml-1.5 text-[10px] text-muted-foreground">({data.tab.totalCount})</span>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             <button onClick={handleExportCSV} className="px-2.5 py-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground border border-border rounded-md transition" title="Export CSV">
               CSV ↓
             </button>
           </div>
         </div>
 
-        {/* Table — campaigns/allperiods */}
+        {/* Campaigns / All Periods — mobile cards */}
         {activeTab !== "byproduct" && (
-          <div className="overflow-x-auto">
+          <div className="md:hidden divide-y divide-border">
+            {campaignTable.getRowModel().rows.length === 0 ? (
+              <div className="px-4 py-12 text-center text-muted-foreground text-sm">No campaigns found for this period.</div>
+            ) : (
+              campaignTable.getRowModel().rows.map((row) => {
+                const c = row.original;
+                const typeColor: Record<string, string> = { SP: "bg-blue-500/20 text-blue-400", SB: "bg-purple-500/20 text-purple-400", SD: "bg-amber-500/20 text-amber-400", SBV: "bg-green-500/20 text-green-400" };
+                const acosColor = c.acos == null ? "text-muted-foreground" : c.acos < 20 ? "text-green-400" : c.acos < 35 ? "text-amber-400" : "text-red-400";
+                return (
+                  <button
+                    key={row.id}
+                    type="button"
+                    onClick={() => setDetailCampaign(c.campaignName)}
+                    className="w-full text-left px-4 py-3 hover:bg-elevated/30 transition-colors"
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <p className="text-xs font-medium text-primary line-clamp-2 leading-snug">{c.campaignName}</p>
+                      <span className={cn("flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase", typeColor[c.campaignType] ?? "bg-gray-500/20 text-gray-400")}>{c.campaignType}</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-x-4 gap-y-1.5 text-xs">
+                      <div>
+                        <div className="text-muted-foreground text-[10px]">Spend</div>
+                        <div className="tabular-nums font-medium">{fmtD(c.adSpend)}</div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground text-[10px]">Sales</div>
+                        <div className="tabular-nums font-medium">{fmtD(c.ppcSales)}</div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground text-[10px]">ACOS</div>
+                        <div className={cn("tabular-nums font-medium", acosColor)}>{c.acos != null ? `${c.acos.toFixed(1)}%` : "—"}</div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground text-[10px]">Profit</div>
+                        <div className={cn("tabular-nums font-medium", c.profit >= 0 ? "text-green-400" : "text-red-400")}>{fmtD(c.profit)}</div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground text-[10px]">Orders</div>
+                        <div className="tabular-nums font-medium">{fmtI(c.orders)}</div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground text-[10px]">ROAS</div>
+                        <div className="tabular-nums font-medium">{fmtR(c.roas)}</div>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        )}
+
+        {/* Campaigns / All Periods — desktop table */}
+        {activeTab !== "byproduct" && (
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10">
                 {campaignTable.getHeaderGroups().map((hg) => (
@@ -364,10 +420,10 @@ export function PPCPage() {
                     {hg.headers.map((h, hi) => (
                       <th key={h.id} onClick={h.column.getCanSort() ? h.column.getToggleSortingHandler() : undefined}
                         className={cn(
-                          "px-2 md:px-3 py-2.5 text-left text-[10px] uppercase tracking-wider text-muted-foreground font-semibold whitespace-nowrap",
+                          "px-3 py-2.5 text-left text-[10px] uppercase tracking-wider text-muted-foreground font-semibold whitespace-nowrap",
                           h.column.getCanSort() && "cursor-pointer select-none hover:text-foreground",
-                          hi <= 1 && "md:static sticky left-0 z-20 bg-elevated md:bg-elevated/50",
-                          hi === 1 && "border-r border-border md:border-r-0"
+                          hi <= 1 && "sticky left-0 z-20 bg-elevated/50",
+                          hi === 1 && "border-r border-border"
                         )}
                         style={{ width: h.getSize() }}>
                         <div className="flex items-center gap-1">
@@ -391,10 +447,10 @@ export function PPCPage() {
                           <td
                             key={cell.id}
                             className={cn(
-                              "px-2 md:px-3 py-2.5 whitespace-nowrap",
+                              "px-3 py-2.5 whitespace-nowrap",
                               cell.column.id === "expand" && "cursor-pointer",
-                              ci <= 1 && "md:static sticky left-0 z-10 bg-card md:bg-transparent",
-                              ci === 1 && "border-r border-border md:border-r-0"
+                              ci <= 1 && "sticky left-0 z-10 bg-card",
+                              ci === 1 && "border-r border-border"
                             )}
                             onClick={() => {
                               if (cell.column.id === "expand") toggleExpand(orig.campaignName);
@@ -419,9 +475,58 @@ export function PPCPage() {
           </div>
         )}
 
-        {/* Table — by product */}
+        {/* By Product — mobile cards */}
         {activeTab === "byproduct" && (
-          <div className="overflow-x-auto">
+          <div className="md:hidden divide-y divide-border">
+            {productTable.getRowModel().rows.length === 0 ? (
+              <div className="px-4 py-12 text-center text-muted-foreground text-sm">No product data found for this period.</div>
+            ) : (
+              productTable.getRowModel().rows.map((row) => {
+                const p = row.original;
+                const acosColor = p.acos == null ? "text-muted-foreground" : p.acos < 20 ? "text-green-400" : p.acos < 35 ? "text-amber-400" : "text-red-400";
+                return (
+                  <div key={row.id} className="px-4 py-3">
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <span className="font-mono text-[10px] text-muted-foreground">{p.asin}</span>
+                      <span className="flex-shrink-0 text-[10px] text-muted-foreground tabular-nums">{p.campaignCount} camp.</span>
+                    </div>
+                    <p className="text-xs font-medium text-foreground line-clamp-2 leading-snug mb-2">{p.title}</p>
+                    <div className="grid grid-cols-3 gap-x-4 gap-y-1.5 text-xs">
+                      <div>
+                        <div className="text-muted-foreground text-[10px]">Spend</div>
+                        <div className="tabular-nums font-medium">{fmtD(p.adSpend)}</div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground text-[10px]">Sales</div>
+                        <div className="tabular-nums font-medium">{fmtD(p.ppcSales)}</div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground text-[10px]">ACOS</div>
+                        <div className={cn("tabular-nums font-medium", acosColor)}>{p.acos != null ? `${p.acos.toFixed(1)}%` : "—"}</div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground text-[10px]">Profit</div>
+                        <div className={cn("tabular-nums font-medium", p.profit >= 0 ? "text-green-400" : "text-red-400")}>{fmtD(p.profit)}</div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground text-[10px]">Orders</div>
+                        <div className="tabular-nums font-medium">{fmtI(p.orders)}</div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground text-[10px]">ROAS</div>
+                        <div className="tabular-nums font-medium">{fmtR(p.roas)}</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
+
+        {/* By Product — desktop table */}
+        {activeTab === "byproduct" && (
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10">
                 {productTable.getHeaderGroups().map((hg) => (
@@ -429,9 +534,9 @@ export function PPCPage() {
                     {hg.headers.map((h, hi) => (
                       <th key={h.id} onClick={h.column.getCanSort() ? h.column.getToggleSortingHandler() : undefined}
                         className={cn(
-                          "px-2 md:px-3 py-2.5 text-left text-[10px] uppercase tracking-wider text-muted-foreground font-semibold whitespace-nowrap",
+                          "px-3 py-2.5 text-left text-[10px] uppercase tracking-wider text-muted-foreground font-semibold whitespace-nowrap",
                           h.column.getCanSort() && "cursor-pointer select-none hover:text-foreground",
-                          hi === 0 && "md:static sticky left-0 z-20 bg-elevated md:bg-elevated/50 border-r border-border md:border-r-0"
+                          hi === 0 && "sticky left-0 z-20 bg-elevated/50 border-r border-border"
                         )}
                         style={{ width: h.getSize() }}>
                         <div className="flex items-center gap-1">
@@ -449,7 +554,7 @@ export function PPCPage() {
                   return (
                   <tr key={row.id} className={cn("border-b border-border/50 hover:bg-elevated/30 transition-colors", rowBg)}>
                     {row.getVisibleCells().map((cell, ci) => (
-                      <td key={cell.id} className={cn("px-2 md:px-3 py-2.5 whitespace-nowrap", ci === 0 && "md:static sticky left-0 z-10 bg-card md:bg-transparent border-r border-border md:border-r-0")}>
+                      <td key={cell.id} className={cn("px-3 py-2.5 whitespace-nowrap", ci === 0 && "sticky left-0 z-10 bg-card border-r border-border")}>
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
                     ))}
