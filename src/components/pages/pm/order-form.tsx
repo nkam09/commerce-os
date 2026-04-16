@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils/cn";
 import type {
   SupplierOrderItem,
@@ -21,6 +21,29 @@ import {
   addDays,
 } from "@/lib/types/supplier-order";
 
+type Confidence = "high" | "medium" | "low";
+
+type ExtractedField<T = string> = { value: T; confidence: Confidence } | null;
+
+type ExtractedLineItem = {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  unit: string;
+  confidence: Confidence;
+};
+
+type ExtractedData = {
+  orderNumber: ExtractedField;
+  supplier: ExtractedField;
+  orderDate: ExtractedField;
+  currency: ExtractedField;
+  shipMethod: ExtractedField;
+  terms: ExtractedField;
+  lineItems: ExtractedLineItem[];
+  notes: string;
+};
+
 type OrderFormProps = {
   spaceId: string;
   onClose: () => void;
@@ -36,6 +59,13 @@ export function OrderForm({ spaceId, onClose, onCreated }: OrderFormProps) {
   const [prefill, setPrefill] = useState<PrefillData | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  // PO extraction state
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractionError, setExtractionError] = useState<string | null>(null);
+  const [fieldConfidence, setFieldConfidence] = useState<Record<string, Confidence>>({});
+  const [extractionNotes, setExtractionNotes] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Form state
   const [selectedSupplierIdx, setSelectedSupplierIdx] = useState(0);
@@ -121,6 +151,93 @@ export function OrderForm({ spaceId, onClose, onCreated }: OrderFormProps) {
     ]);
   }, []);
 
+  const handlePOUpload = useCallback(async (file: File) => {
+    setIsExtracting(true);
+    setExtractionError(null);
+    setFieldConfidence({});
+    setExtractionNotes(null);
+
+    try {
+      const form = new FormData();
+      form.append("file", file);
+
+      const res = await fetch("/api/pm/orders/extract-po", {
+        method: "POST",
+        body: form,
+      });
+      const json = await res.json();
+
+      if (!json.ok) {
+        setExtractionError(json.error ?? "Extraction failed");
+        return;
+      }
+
+      const data: ExtractedData = json.data;
+      const conf: Record<string, Confidence> = {};
+
+      if (data.orderNumber) {
+        setOrderNumber(data.orderNumber.value);
+        conf.orderNumber = data.orderNumber.confidence;
+      }
+      if (data.supplier) {
+        setSupplier(data.supplier.value);
+        conf.supplier = data.supplier.confidence;
+      }
+      if (data.orderDate) {
+        setOrderDate(data.orderDate.value);
+        conf.orderDate = data.orderDate.confidence;
+      }
+      if (data.currency) {
+        const c = data.currency.value;
+        setCurrency(c);
+        conf.currency = data.currency.confidence;
+        if (c !== "USD") {
+          setExchangeRate(DEFAULT_EXCHANGE_RATES[c] ?? 1);
+        } else {
+          setExchangeRate(null);
+        }
+      }
+      if (data.shipMethod) {
+        setShipMethod(data.shipMethod.value);
+        conf.shipMethod = data.shipMethod.confidence;
+      }
+      if (data.terms) {
+        setTerms(data.terms.value);
+        conf.terms = data.terms.confidence;
+      }
+
+      if (data.lineItems && data.lineItems.length > 0) {
+        setItems(
+          data.lineItems.map((li, i) => ({
+            asin: "",
+            description: li.description,
+            quantity: li.quantity,
+            unit: li.unit || "pc.",
+            unitPrice: li.unitPrice,
+            isOneTimeFee: false,
+            sortOrder: i,
+          }))
+        );
+        // Track per-item confidence under "lineItems" as the worst item confidence
+        const worstItem = data.lineItems.reduce<Confidence>((worst, li) => {
+          const rank: Record<Confidence, number> = { high: 3, medium: 2, low: 1 };
+          return rank[li.confidence] < rank[worst] ? li.confidence : worst;
+        }, "high");
+        conf.lineItems = worstItem;
+      }
+
+      setFieldConfidence(conf);
+      if (data.notes) {
+        setExtractionNotes(data.notes);
+      }
+    } catch (err) {
+      console.error("PO extraction error:", err);
+      setExtractionError("Failed to extract PO data. Please try again.");
+    } finally {
+      setIsExtracting(false);
+    }
+  }, []);
+
   const handleSubmit = useCallback(async () => {
     if (!orderNumber.trim()) return;
     setSaving(true);
@@ -201,6 +318,63 @@ export function OrderForm({ spaceId, onClose, onCreated }: OrderFormProps) {
         </div>
 
         <div className="p-4 space-y-6">
+          {/* PO Upload */}
+          <section className="space-y-2">
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Upload PO</h3>
+            <div
+              className={cn(
+                "rounded-lg border-2 border-dashed p-4 text-center transition cursor-pointer",
+                isExtracting
+                  ? "border-primary/40 bg-primary/5"
+                  : "border-border hover:border-primary/50 hover:bg-elevated/50"
+              )}
+              onClick={() => !isExtracting && fileInputRef.current?.click()}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png,.webp,.gif"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handlePOUpload(f);
+                  e.target.value = "";
+                }}
+              />
+              {isExtracting ? (
+                <div className="flex items-center justify-center gap-2 text-xs text-primary">
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
+                    <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                  </svg>
+                  Extracting data from PO...
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-6 w-6 mx-auto text-muted-foreground">
+                    <path d="M12 16V4m0 0l-4 4m4-4 4 4M4 18h16" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <p className="text-xs text-muted-foreground">
+                    Drop a PO/invoice PDF or image to auto-fill fields
+                  </p>
+                  <p className="text-2xs text-muted-foreground/60">
+                    PDF, JPEG, PNG, WebP, GIF &middot; Max 20 MB
+                  </p>
+                </div>
+              )}
+            </div>
+            {extractionError && (
+              <p className="text-2xs text-red-400">{extractionError}</p>
+            )}
+            {extractionNotes && (
+              <div className="rounded-md bg-yellow-500/10 border border-yellow-500/20 px-3 py-2">
+                <p className="text-2xs text-yellow-300">
+                  <span className="font-semibold">Extraction notes:</span> {extractionNotes}
+                </p>
+              </div>
+            )}
+          </section>
+
           {/* Supplier selector */}
           {prefill && prefill.suppliers.length > 1 && (
             <section className="space-y-2">
@@ -234,23 +408,23 @@ export function OrderForm({ spaceId, onClose, onCreated }: OrderFormProps) {
           {/* Order details */}
           <section className="space-y-3">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Field label="Order #">
+              <Field label="Order #" confidence={fieldConfidence.orderNumber}>
                 <input value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} placeholder="e.g. TE-48054" className="input-field" autoFocus />
               </Field>
-              <Field label="Order Date">
+              <Field label="Order Date" confidence={fieldConfidence.orderDate}>
                 <input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} className="input-field" />
               </Field>
-              <Field label="Supplier">
+              <Field label="Supplier" confidence={fieldConfidence.supplier}>
                 <input value={supplier} onChange={(e) => setSupplier(e.target.value)} className="input-field" />
               </Field>
-              <Field label="Terms">
+              <Field label="Terms" confidence={fieldConfidence.terms}>
                 <select value={terms} onChange={(e) => setTerms(e.target.value)} className="input-field">
                   {(prefill?.suppliers[selectedSupplierIdx]?.terms ?? [terms]).map((t) => (
                     <option key={t} value={t}>{t}</option>
                   ))}
                 </select>
               </Field>
-              <Field label="Currency">
+              <Field label="Currency" confidence={fieldConfidence.currency}>
                 <select
                   value={currency}
                   onChange={(e) => {
@@ -268,7 +442,7 @@ export function OrderForm({ spaceId, onClose, onCreated }: OrderFormProps) {
                   <input type="number" step="0.000001" value={exchangeRate ?? ""} onChange={(e) => setExchangeRate(parseFloat(e.target.value) || null)} className="input-field" />
                 </Field>
               )}
-              <Field label="Ship Method">
+              <Field label="Ship Method" confidence={fieldConfidence.shipMethod}>
                 <select value={shipMethod} onChange={(e) => setShipMethod(e.target.value)} className="input-field">
                   <option value="">—</option>
                   {SHIP_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
@@ -302,7 +476,10 @@ export function OrderForm({ spaceId, onClose, onCreated }: OrderFormProps) {
           {/* Line items */}
           <section className="space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Line Items</h3>
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Line Items
+                {fieldConfidence.lineItems && <ConfidenceBadge level={fieldConfidence.lineItems} />}
+              </h3>
               <button type="button" onClick={addItem} className="flex items-center gap-1 text-2xs text-primary hover:text-primary/80 transition">
                 <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3"><path d="M8 3v10M3 8h10" /></svg>
                 Add Item
@@ -404,10 +581,38 @@ export function OrderForm({ spaceId, onClose, onCreated }: OrderFormProps) {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function ConfidenceBadge({ level }: { level: Confidence }) {
+  if (level === "high") return null;
+  const isLow = level === "low";
+  return (
+    <span
+      className={cn(
+        "ml-1.5 inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold leading-none",
+        isLow
+          ? "bg-red-500/15 text-red-400 border border-red-500/25"
+          : "bg-yellow-500/15 text-yellow-400 border border-yellow-500/25"
+      )}
+    >
+      {isLow ? "low" : "med"}
+    </span>
+  );
+}
+
+function Field({
+  label,
+  confidence,
+  children,
+}: {
+  label: string;
+  confidence?: Confidence;
+  children: React.ReactNode;
+}) {
   return (
     <div>
-      <label className="block text-2xs font-medium text-muted-foreground mb-1">{label}</label>
+      <label className="block text-2xs font-medium text-muted-foreground mb-1">
+        {label}
+        {confidence && <ConfidenceBadge level={confidence} />}
+      </label>
       {children}
     </div>
   );
