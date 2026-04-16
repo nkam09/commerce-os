@@ -1,1 +1,0 @@
-ALTER TABLE "daily_fees" ADD COLUMN "awdStorageFee" DECIMAL(14,4) NOT NULL DEFAULT 0;
