@@ -58,7 +58,7 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: WORKER_INTERVAL_MS
-        value: "3600000"
+        value: "1800000"
       - key: JOB_USER_ID
         sync: false
       - key: APP_ENCRYPTION_KEY
