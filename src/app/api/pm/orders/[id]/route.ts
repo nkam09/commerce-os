@@ -19,6 +19,7 @@ export async function GET(_request: Request, ctx: Params) {
       include: {
         lineItems: { orderBy: { sortOrder: "asc" } },
         payments: { orderBy: { sortOrder: "asc" } },
+        shipments: { orderBy: { sortOrder: "asc" } },
       },
     });
     if (!order) return apiNotFound("Order");
@@ -54,6 +55,9 @@ export async function PUT(request: Request, ctx: Params) {
       shippingCurrency,
       shipToAddress,
       shipMethod,
+      transactionFeePct,
+      warehouseName,
+      totalUnitsReceived,
       estProductionDays,
       estDeliveryDays,
       actProductionEnd,
@@ -62,6 +66,7 @@ export async function PUT(request: Request, ctx: Params) {
       notes,
       lineItems,
       payments,
+      shipments,
     } = body;
 
     // Update the order scalar fields
@@ -81,6 +86,9 @@ export async function PUT(request: Request, ctx: Params) {
         ...(shippingCurrency !== undefined && { shippingCurrency }),
         ...(shipToAddress !== undefined && { shipToAddress }),
         ...(shipMethod !== undefined && { shipMethod }),
+        ...(transactionFeePct !== undefined && { transactionFeePct }),
+        ...(warehouseName !== undefined && { warehouseName }),
+        ...(totalUnitsReceived !== undefined && { totalUnitsReceived }),
         ...(estProductionDays !== undefined && { estProductionDays }),
         ...(estDeliveryDays !== undefined && { estDeliveryDays }),
         ...(actProductionEnd !== undefined && {
@@ -142,12 +150,47 @@ export async function PUT(request: Request, ctx: Params) {
       });
     }
 
+    // Replace shipments if provided
+    if (shipments !== undefined) {
+      await prisma.supplierOrderShipment.deleteMany({ where: { orderId: id } });
+      if (shipments.length > 0) {
+        await prisma.supplierOrderShipment.createMany({
+          data: shipments.map(
+            (
+              s: {
+                units: number;
+                destination?: string;
+                amazonShipId?: string | null;
+                shipDate?: string | null;
+                receivedDate?: string | null;
+                status?: string;
+                notes?: string | null;
+              },
+              i: number
+            ) => ({
+              id: `${id}_ship_${i}_${Date.now()}`.slice(0, 25),
+              orderId: id,
+              units: s.units,
+              destination: s.destination ?? "FBA",
+              amazonShipId: s.amazonShipId ?? null,
+              shipDate: s.shipDate ? new Date(s.shipDate) : null,
+              receivedDate: s.receivedDate ? new Date(s.receivedDate) : null,
+              status: s.status ?? "Pending",
+              notes: s.notes ?? null,
+              sortOrder: i,
+            })
+          ),
+        });
+      }
+    }
+
     // Re-fetch with includes
     const updated = await prisma.supplierOrder.findUnique({
       where: { id },
       include: {
         lineItems: { orderBy: { sortOrder: "asc" } },
         payments: { orderBy: { sortOrder: "asc" } },
+        shipments: { orderBy: { sortOrder: "asc" } },
       },
     });
 
@@ -192,6 +235,9 @@ function serializeOrder(order: any) {
     shippingCurrency: order.shippingCurrency ?? "USD",
     shipToAddress: order.shipToAddress ?? null,
     shipMethod: order.shipMethod ?? null,
+    transactionFeePct: Number(order.transactionFeePct ?? 2.9901),
+    warehouseName: order.warehouseName ?? null,
+    totalUnitsReceived: order.totalUnitsReceived ?? 0,
     estProductionDays: order.estProductionDays,
     estDeliveryDays: order.estDeliveryDays,
     actProductionEnd: order.actProductionEnd
@@ -218,6 +264,17 @@ function serializeOrder(order: any) {
       amount: Number(p.amount),
       paidDate: p.paidDate ? p.paidDate.toISOString().split("T")[0] : null,
       sortOrder: p.sortOrder,
+    })),
+    shipments: (order.shipments ?? []).map((s: any) => ({
+      id: s.id,
+      units: s.units,
+      destination: s.destination,
+      amazonShipId: s.amazonShipId ?? null,
+      shipDate: s.shipDate ? s.shipDate.toISOString().split("T")[0] : null,
+      receivedDate: s.receivedDate ? s.receivedDate.toISOString().split("T")[0] : null,
+      status: s.status,
+      notes: s.notes ?? null,
+      sortOrder: s.sortOrder,
     })),
     createdAt: order.createdAt.toISOString(),
     updatedAt: order.updatedAt.toISOString(),

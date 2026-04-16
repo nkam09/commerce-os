@@ -730,11 +730,16 @@ model SupplierOrder {
   actProductionEnd  DateTime? @db.Date
   actDeliveryDate   DateTime? @db.Date
 
+  transactionFeePct Decimal  @default(2.9901) @db.Decimal(8, 4)
+  warehouseName     String?
+  totalUnitsReceived Int     @default(0)
+
   status            String   @default("Pending")
   notes             String?  @db.Text
 
   lineItems         SupplierOrderItem[]
   payments          SupplierOrderPayment[]
+  shipments         SupplierOrderShipment[]
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -771,4 +776,21 @@ model SupplierOrderPayment {
   createdAt DateTime      @default(now())
 
   @@map("supplier_order_payments")
+}
+
+model SupplierOrderShipment {
+  id            String        @id @default(cuid())
+  orderId       String
+  order         SupplierOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  units         Int
+  destination   String        @default("FBA")
+  amazonShipId  String?
+  shipDate      DateTime?     @db.Date
+  receivedDate  DateTime?     @db.Date
+  status        String        @default("Pending")
+  notes         String?
+  sortOrder     Int           @default(0)
+  createdAt     DateTime      @default(now())
+
+  @@map("supplier_order_shipments")
 }

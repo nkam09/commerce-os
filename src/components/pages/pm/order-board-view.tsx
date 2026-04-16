@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { cn } from "@/lib/utils/cn";
 import type { SupplierOrderData } from "@/lib/types/supplier-order";
-import { calculateOrderTotals, formatOrderCurrency, toUSD } from "@/lib/types/supplier-order";
+import { calculateOrderTotals, formatOrderCurrency, toUSD, getWarehouseStats } from "@/lib/types/supplier-order";
 
 type OrderBoardViewProps = {
   orders: SupplierOrderData[];
@@ -60,12 +60,13 @@ export function OrderBoardView({ orders, onOrderClick }: OrderBoardViewProps) {
           {/* Cards */}
           <div className="space-y-2">
             {(grouped[col] ?? []).map((order) => {
-              const totals = calculateOrderTotals(order.lineItems);
+              const totals = calculateOrderTotals(order.lineItems, order.transactionFeePct);
               const totalUnits = order.lineItems
                 .filter((i) => !i.isOneTimeFee)
                 .reduce((s, i) => s + i.quantity, 0);
               const cur = order.currency ?? "USD";
               const isNonUSD = cur !== "USD";
+              const wh = getWarehouseStats(order);
               return (
                 <button
                   key={order.id}
@@ -97,6 +98,12 @@ export function OrderBoardView({ orders, onOrderClick }: OrderBoardViewProps) {
                       {totalUnits.toLocaleString()} units
                     </span>
                   </div>
+                  {order.totalUnitsReceived > 0 && (
+                    <div className="text-2xs text-muted-foreground">
+                      {wh.atWarehouse > 0 ? `${wh.atWarehouse.toLocaleString()} at warehouse` : ""}
+                      {wh.shippedToFBA > 0 ? `${wh.atWarehouse > 0 ? " · " : ""}${wh.shippedToFBA.toLocaleString()} shipped to FBA` : ""}
+                    </div>
+                  )}
                   {order.actDeliveryDate && (
                     <div className="text-2xs text-green-400">
                       Delivered {order.actDeliveryDate}

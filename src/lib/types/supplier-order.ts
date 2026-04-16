@@ -21,6 +21,18 @@ export type SupplierOrderPayment = {
   sortOrder: number;
 };
 
+export type SupplierOrderShipment = {
+  id?: string;
+  units: number;
+  destination: string;
+  amazonShipId: string | null;
+  shipDate: string | null;
+  receivedDate: string | null;
+  status: string;
+  notes: string | null;
+  sortOrder: number;
+};
+
 export type SupplierOrderData = {
   id: string;
   spaceId: string;
@@ -37,6 +49,9 @@ export type SupplierOrderData = {
   shippingCurrency: string;
   shipToAddress: string | null;
   shipMethod: string | null;
+  transactionFeePct: number;
+  warehouseName: string | null;
+  totalUnitsReceived: number;
   estProductionDays: number | null;
   estDeliveryDays: number | null;
   actProductionEnd: string | null;
@@ -45,6 +60,7 @@ export type SupplierOrderData = {
   notes: string | null;
   lineItems: SupplierOrderItem[];
   payments: SupplierOrderPayment[];
+  shipments: SupplierOrderShipment[];
   createdAt: string;
   updatedAt: string;
 };
@@ -77,6 +93,8 @@ export const ORDER_STATUSES = [
   "Cancelled",
 ] as const;
 
+export const SHIPMENT_STATUSES = ["Pending", "Shipped", "Received", "Cancelled"] as const;
+
 export const CURRENCIES = ["USD", "JPY", "EUR", "CNY"] as const;
 
 export const CURRENCY_SYMBOLS: Record<string, string> = {
@@ -97,12 +115,13 @@ export const SHIP_METHODS = ["SEA", "AIR", "EXPRESS"] as const;
 
 export const TRANSACTION_FEE_RATE = 0.029901;
 
-export function calculateOrderTotals(items: SupplierOrderItem[]) {
+export function calculateOrderTotals(items: SupplierOrderItem[], feePct: number = TRANSACTION_FEE_RATE * 100) {
+  const feeRate = feePct / 100;
   const productItems = items.filter((i) => !i.isOneTimeFee);
   const feeItems = items.filter((i) => i.isOneTimeFee);
   const totalUnits = productItems.reduce((s, i) => s + i.quantity, 0);
   const subtotal = items.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
-  const transactionFee = subtotal * TRANSACTION_FEE_RATE;
+  const transactionFee = subtotal * feeRate;
   const orderTotal = subtotal + transactionFee;
   const oneTimeFees = feeItems.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
   return { totalUnits, subtotal, transactionFee, orderTotal, oneTimeFees };
@@ -122,8 +141,6 @@ export function toUSD(amount: number, currency: string, exchangeRate: number | n
 }
 
 export function parseTermsSplit(terms: string): number {
-  // "50/50 Upfront/Before Delivery" → 50, "30/70 Upfront/Before Delivery" → 30
-  // "T/T in advance" → 100%
   if (terms.toLowerCase().includes("t/t in advance")) return 1.0;
   const match = terms.match(/^(\d+)\//);
   return match ? parseInt(match[1], 10) / 100 : 0.5;
@@ -139,4 +156,16 @@ export function daysBetween(a: string, b: string): number {
   const da = new Date(a + "T00:00:00");
   const db = new Date(b + "T00:00:00");
   return Math.round((db.getTime() - da.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+/** Compute warehouse inventory summary from order data */
+export function getWarehouseStats(order: SupplierOrderData) {
+  const totalOrdered = order.lineItems
+    .filter((i) => !i.isOneTimeFee)
+    .reduce((s, i) => s + i.quantity, 0);
+  const shippedToFBA = (order.shipments ?? [])
+    .filter((s) => s.status !== "Cancelled")
+    .reduce((s, sh) => s + sh.units, 0);
+  const atWarehouse = order.totalUnitsReceived - shippedToFBA;
+  return { totalOrdered, shippedToFBA, atWarehouse };
 }

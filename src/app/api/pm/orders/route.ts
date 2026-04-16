@@ -23,6 +23,7 @@ export async function GET(request: Request) {
       include: {
         lineItems: { orderBy: { sortOrder: "asc" } },
         payments: { orderBy: { sortOrder: "asc" } },
+        shipments: { orderBy: { sortOrder: "asc" } },
       },
       orderBy: { orderDate: "desc" },
     });
@@ -53,6 +54,9 @@ export async function POST(request: Request) {
       shippingCurrency,
       shipToAddress,
       shipMethod,
+      transactionFeePct,
+      warehouseName,
+      totalUnitsReceived,
       estProductionDays,
       estDeliveryDays,
       actProductionEnd,
@@ -89,6 +93,9 @@ export async function POST(request: Request) {
         shippingCurrency: shippingCurrency ?? "USD",
         shipToAddress: shipToAddress ?? null,
         shipMethod: shipMethod ?? null,
+        transactionFeePct: transactionFeePct ?? 2.9901,
+        warehouseName: warehouseName ?? null,
+        totalUnitsReceived: totalUnitsReceived ?? 0,
         estProductionDays: estProductionDays ?? null,
         estDeliveryDays: estDeliveryDays ?? null,
         actProductionEnd: actProductionEnd ? new Date(actProductionEnd) : null,
@@ -135,6 +142,7 @@ export async function POST(request: Request) {
       include: {
         lineItems: { orderBy: { sortOrder: "asc" } },
         payments: { orderBy: { sortOrder: "asc" } },
+        shipments: { orderBy: { sortOrder: "asc" } },
       },
     });
 
@@ -162,6 +170,9 @@ function serializeOrder(order: any) {
     shippingCurrency: order.shippingCurrency ?? "USD",
     shipToAddress: order.shipToAddress ?? null,
     shipMethod: order.shipMethod ?? null,
+    transactionFeePct: Number(order.transactionFeePct ?? 2.9901),
+    warehouseName: order.warehouseName ?? null,
+    totalUnitsReceived: order.totalUnitsReceived ?? 0,
     estProductionDays: order.estProductionDays,
     estDeliveryDays: order.estDeliveryDays,
     actProductionEnd: order.actProductionEnd
@@ -188,6 +199,17 @@ function serializeOrder(order: any) {
       amount: Number(p.amount),
       paidDate: p.paidDate ? p.paidDate.toISOString().split("T")[0] : null,
       sortOrder: p.sortOrder,
+    })),
+    shipments: (order.shipments ?? []).map((s: any) => ({
+      id: s.id,
+      units: s.units,
+      destination: s.destination,
+      amazonShipId: s.amazonShipId ?? null,
+      shipDate: s.shipDate ? s.shipDate.toISOString().split("T")[0] : null,
+      receivedDate: s.receivedDate ? s.receivedDate.toISOString().split("T")[0] : null,
+      status: s.status,
+      notes: s.notes ?? null,
+      sortOrder: s.sortOrder,
     })),
     createdAt: order.createdAt.toISOString(),
     updatedAt: order.updatedAt.toISOString(),

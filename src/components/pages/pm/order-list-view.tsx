@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils/cn";
 import type { SupplierOrderData } from "@/lib/types/supplier-order";
-import { calculateOrderTotals, formatOrderCurrency, toUSD, addDays } from "@/lib/types/supplier-order";
+import { calculateOrderTotals, formatOrderCurrency, toUSD, addDays, getWarehouseStats } from "@/lib/types/supplier-order";
 
 type OrderListViewProps = {
   orders: SupplierOrderData[];
@@ -46,10 +46,11 @@ export function OrderListView({ orders, onOrderClick }: OrderListViewProps) {
         </thead>
         <tbody>
           {orders.map((order) => {
-            const totals = calculateOrderTotals(order.lineItems);
+            const totals = calculateOrderTotals(order.lineItems, order.transactionFeePct);
             const totalUnits = order.lineItems
               .filter((i) => !i.isOneTimeFee)
               .reduce((s, i) => s + i.quantity, 0);
+            const wh = getWarehouseStats(order);
             const estDel =
               order.estDeliveryDays && order.orderDate
                 ? addDays(order.orderDate, order.estDeliveryDays)
@@ -82,6 +83,9 @@ export function OrderListView({ orders, onOrderClick }: OrderListViewProps) {
                 </td>
                 <td className="px-3 py-2 text-right text-foreground tabular-nums">
                   {totalUnits.toLocaleString()}
+                  {order.totalUnitsReceived > 0 && wh.shippedToFBA > 0 && (
+                    <span className="block text-2xs text-muted-foreground">{wh.shippedToFBA.toLocaleString()} to FBA</span>
+                  )}
                 </td>
                 <td className="px-3 py-2 text-center">
                   <span
