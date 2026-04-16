@@ -1,11 +1,19 @@
+import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/db/prisma";
 import { toNum, safeDiv, round } from "@/lib/utils/math";
 import { daysAgo, todayUtc, daysBetween } from "@/lib/utils/dates";
 
 // ─── AI Insight Service ────────────────────────────────────────────────────
 //
-// Builds a natural-language summary of the last 30 days of real performance
-// data, suitable for the dashboard AI Insight banner.
+// Fetches 30 days of real data, sends it to Claude for analysis,
+// and falls back to a template when the API key is missing or the call fails.
+
+// ─── In-memory cache ───────────────────────────────────────────────────────
+
+const insightCache = new Map<string, { text: string; timestamp: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// ─── Formatting helpers ────────────────────────────────────────────────────
 
 function fmtCurrency(v: number): string {
   const abs = Math.abs(v);
@@ -20,6 +28,8 @@ function fmtPct(v: number): string {
   return `${v.toFixed(1)}%`;
 }
 
+// ─── Types ─────────────────────────────────────────────────────────────────
+
 type ProductInsight = {
   title: string;
   asin: string;
@@ -30,11 +40,12 @@ type ProductInsight = {
   daysLeft: number | null;
 };
 
-export async function getDashboardInsight(userId: string, brand?: string): Promise<string> {
+// ─── Data fetching (shared by all insight types) ───────────────────────────
+
+async function fetchInsightData(userId: string, brand?: string) {
   const start = daysAgo(29);
   const today = todayUtc();
 
-  // ── Fetch products with settings + latest inventory ────────────────────
   const products = await prisma.product.findMany({
     where: { userId, status: { not: "ARCHIVED" }, ...(brand ? { brand } : {}) },
     select: {
@@ -50,13 +61,10 @@ export async function getDashboardInsight(userId: string, brand?: string): Promi
     },
   });
 
-  if (products.length === 0) {
-    return "No active products found. Add products and sync your Amazon data to see AI insights.";
-  }
+  if (products.length === 0) return null;
 
   const productIds = products.map((p) => p.id);
 
-  // ── Batch query 30-day aggregates ──────────────────────────────────────
   const [salesByProduct, feesByProduct, adsByProduct, reimbAgg] = await Promise.all([
     prisma.dailySale.groupBy({
       by: ["productId"],
@@ -92,7 +100,7 @@ export async function getDashboardInsight(userId: string, brand?: string): Promi
   const adsMap = new Map(adsByProduct.map((a) => [a.productId, a._sum]));
   const totalReimbursements = toNum(reimbAgg._sum.amountTotal);
 
-  // ── Indirect expenses (pro-rated to 30-day window) ─────────────────────
+  // Indirect expenses (pro-rated to 30-day window)
   let indirectExpenseTotal = 0;
   try {
     const expenses = await prisma.expense.findMany({
@@ -120,7 +128,7 @@ export async function getDashboardInsight(userId: string, brand?: string): Promi
     indirectExpenseTotal = round(indirectExpenseTotal);
   } catch { /* expense table may not exist yet */ }
 
-  // ── Compute per-product metrics ────────────────────────────────────────
+  // Compute per-product metrics
   const rangeDays = Math.max(1, Math.round((today.getTime() - start.getTime()) / 86400000) + 1);
 
   let totalGrossSales = 0;
@@ -165,7 +173,7 @@ export async function getDashboardInsight(userId: string, brand?: string): Promi
     const available = (inv?.available ?? 0) + (inv?.inbound ?? 0);
     const daysLeft = avgDaily > 0 ? round(safeDiv(available, avgDaily), 0) : null;
 
-    // Use short distinguishing name — extract pack size or use ASIN
+    // Use short distinguishing name
     let title = p.asin;
     if (p.title) {
       const packMatch = p.title.match(/(\d+)\s*Pack/i);
@@ -175,7 +183,6 @@ export async function getDashboardInsight(userId: string, brand?: string): Promi
       } else if (sizeMatch) {
         title = `${sizeMatch[1]} Bowl Covers`;
       } else if (p.title.length > 40) {
-        // Truncate at last word boundary before 40 chars
         title = p.title.substring(0, 40).replace(/\s+\S*$/, "...");
       } else {
         title = p.title;
@@ -193,42 +200,56 @@ export async function getDashboardInsight(userId: string, brand?: string): Promi
     };
   });
 
-  // ── Aggregate totals (matches dashboard-tiles-service formula) ──────────
-  // grossProfit = netRevenue - totalFees - totalCogs
-  // netProfit   = grossProfit - adSpend + reimbursements - indirectExpenseTotal
   const totalNetProfit = round(
     totalGrossSales - totalRefunds - totalFees - totalCogs - totalAdSpend + totalReimbursements - indirectExpenseTotal
   );
   const tacos = totalGrossSales > 0 ? round(safeDiv(totalAdSpend, totalGrossSales) * 100, 1) : null;
 
-  // ── Pick highlights ────────────────────────────────────────────────────
-  // Only consider products with meaningful sales
   const activeRows = rows.filter((r) => r.grossSales > 0);
-
-  // Top performer by profit
   const topByProfit = activeRows.length > 0
     ? activeRows.reduce((best, r) => (r.netProfit > best.netProfit ? r : best))
     : null;
-
-  // Worst performer: highest ACOS among products with ad spend
   const withAcos = activeRows.filter((r) => r.acos !== null && r.adSpend > 10);
   const worstAcos = withAcos.length > 0
     ? withAcos.reduce((worst, r) => ((r.acos ?? 0) > (worst.acos ?? 0) ? r : worst))
     : null;
+  const lowStock = rows
+    .filter((r) => r.daysLeft !== null && r.daysLeft < 30 && r.daysLeft >= 0)
+    .sort((a, b) => (a.daysLeft ?? 999) - (b.daysLeft ?? 999));
 
-  // Low stock: products with <30 days of stock
-  const lowStock = rows.filter((r) => r.daysLeft !== null && r.daysLeft < 30 && r.daysLeft >= 0);
-  // Sort by most urgent first
-  lowStock.sort((a, b) => (a.daysLeft ?? 999) - (b.daysLeft ?? 999));
+  return {
+    totalGrossSales: round(totalGrossSales),
+    totalRefunds: round(totalRefunds),
+    totalFees: round(totalFees),
+    totalCogs: round(totalCogs),
+    totalAdSpend: round(totalAdSpend),
+    totalReimbursements: round(totalReimbursements),
+    indirectExpenseTotal: round(indirectExpenseTotal),
+    totalNetProfit,
+    tacos,
+    rows,
+    topByProfit,
+    worstAcos,
+    lowStock,
+  };
+}
 
-  // ── Build natural language ─────────────────────────────────────────────
+// ─── Template fallback ─────────────────────────────────────────────────────
+
+function buildTemplateFallback(data: {
+  totalNetProfit: number;
+  tacos: number | null;
+  totalGrossSales: number;
+  topByProfit: ProductInsight | null;
+  worstAcos: ProductInsight | null;
+  lowStock: ProductInsight[];
+}): string {
   const parts: string[] = [];
 
-  // Net profit + TACOS
-  if (totalGrossSales > 0) {
-    let profitLine = `Your 30-day net profit is ${fmtCurrency(totalNetProfit)}`;
-    if (tacos !== null) {
-      profitLine += ` with ${fmtPct(tacos)} TACOS`;
+  if (data.totalGrossSales > 0) {
+    let profitLine = `Your 30-day net profit is ${fmtCurrency(data.totalNetProfit)}`;
+    if (data.tacos !== null) {
+      profitLine += ` with ${fmtPct(data.tacos)} TACOS`;
     }
     profitLine += ".";
     parts.push(profitLine);
@@ -236,18 +257,15 @@ export async function getDashboardInsight(userId: string, brand?: string): Promi
     parts.push("No sales recorded in the last 30 days.");
   }
 
-  // Top performer
-  if (topByProfit && topByProfit.netProfit > 0) {
-    parts.push(`Top performer: ${topByProfit.title} at ${fmtCurrency(topByProfit.netProfit)} profit.`);
+  if (data.topByProfit && data.topByProfit.netProfit > 0) {
+    parts.push(`Top performer: ${data.topByProfit.title} at ${fmtCurrency(data.topByProfit.netProfit)} profit.`);
   }
 
-  // High ACOS warning (only if it's actually bad — above 40%)
-  if (worstAcos && (worstAcos.acos ?? 0) > 40) {
-    parts.push(`${worstAcos.title} has high ACOS at ${fmtPct(worstAcos.acos ?? 0)}.`);
+  if (data.worstAcos && (data.worstAcos.acos ?? 0) > 40) {
+    parts.push(`${data.worstAcos.title} has high ACOS at ${fmtPct(data.worstAcos.acos ?? 0)}.`);
   }
 
-  // Low stock warnings (show up to 2)
-  for (const ls of lowStock.slice(0, 2)) {
+  for (const ls of data.lowStock.slice(0, 2)) {
     const days = Math.round(ls.daysLeft ?? 0);
     if (days <= 0) {
       parts.push(`${ls.title} is out of stock — reorder immediately.`);
@@ -257,4 +275,222 @@ export async function getDashboardInsight(userId: string, brand?: string): Promi
   }
 
   return parts.join(" ");
+}
+
+// ─── Claude API call ───────────────────────────────────────────────────────
+
+async function callClaude(
+  dataSummary: object,
+  systemPrompt: string,
+): Promise<string | null> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const client = new Anthropic({ apiKey });
+    const response = await client.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 300,
+      messages: [{
+        role: "user",
+        content: `${systemPrompt}\n\nData:\n${JSON.stringify(dataSummary, null, 2)}`,
+      }],
+    });
+
+    const text = response.content[0];
+    if (text.type === "text" && text.text.trim()) {
+      return text.text.trim();
+    }
+    return null;
+  } catch (error) {
+    console.error("[ai-insight] Claude API error:", error);
+    return null;
+  }
+}
+
+// ─── Dashboard insight ─────────────────────────────────────────────────────
+
+export async function getDashboardInsight(userId: string, brand?: string): Promise<string> {
+  const cacheKey = `dashboard:${userId}:${brand ?? "all"}`;
+  const cached = insightCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.text;
+  }
+
+  const data = await fetchInsightData(userId, brand);
+  if (!data) {
+    return "No active products found. Add products and sync your Amazon data to see AI insights.";
+  }
+
+  const dataSummary = {
+    period: "Last 30 days",
+    totals: {
+      grossSales: data.totalGrossSales,
+      refunds: data.totalRefunds,
+      amazonFees: data.totalFees,
+      cogs: data.totalCogs,
+      adSpend: data.totalAdSpend,
+      reimbursements: data.totalReimbursements,
+      indirectExpenses: data.indirectExpenseTotal,
+      netProfit: data.totalNetProfit,
+      tacos: data.tacos,
+    },
+    products: data.rows.map(r => ({
+      name: r.title,
+      asin: r.asin,
+      grossSales: r.grossSales,
+      netProfit: r.netProfit,
+      adSpend: r.adSpend,
+      acos: r.acos,
+      daysOfStockLeft: r.daysLeft,
+    })),
+  };
+
+  const prompt = `You are an Amazon FBA business analyst. Analyze this seller's last 30 days of performance data and provide 2-3 actionable insights in a single paragraph. Be specific with numbers. Focus on what matters most: profitability issues, inventory risks, advertising efficiency, or growth opportunities. Keep it concise — this appears as a banner at the top of their dashboard.
+
+Rules:
+- Maximum 2-3 sentences
+- Lead with the most important insight
+- Use specific numbers from the data
+- If a product is low on stock (<30 days), flag it urgently
+- If ACOS is above 40% on any product, flag it
+- Don't repeat obvious facts — provide analysis and recommendations
+- Don't use bullet points — write as a flowing paragraph
+- Reference products by their short name, not ASIN`;
+
+  const result = await callClaude(dataSummary, prompt);
+  const text = result ?? buildTemplateFallback(data);
+
+  insightCache.set(cacheKey, { text, timestamp: Date.now() });
+  return text;
+}
+
+// ─── Products page insight ─────────────────────────────────────────────────
+
+export async function getProductsInsight(userId: string, brand?: string): Promise<string> {
+  const cacheKey = `products:${userId}:${brand ?? "all"}`;
+  const cached = insightCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.text;
+  }
+
+  const data = await fetchInsightData(userId, brand);
+  if (!data) return "No active products found.";
+
+  const dataSummary = {
+    period: "Last 30 days",
+    products: data.rows.map(r => ({
+      name: r.title,
+      asin: r.asin,
+      grossSales: r.grossSales,
+      netProfit: r.netProfit,
+      adSpend: r.adSpend,
+      acos: r.acos,
+      daysOfStockLeft: r.daysLeft,
+    })),
+    totals: {
+      netProfit: data.totalNetProfit,
+      grossSales: data.totalGrossSales,
+    },
+  };
+
+  const prompt = `You are an Amazon FBA product analyst. Analyze the product performance data and provide a concise insight about product health — which products are most profitable, which need COGS optimization, and any pricing or margin concerns.
+
+Rules:
+- Maximum 2-3 sentences in a flowing paragraph
+- Focus on per-product profitability and cost structure
+- Reference products by their short name, not ASIN
+- Be specific with numbers`;
+
+  const result = await callClaude(dataSummary, prompt);
+  const text = result ?? `${data.rows.length} products tracked. Net profit: ${fmtCurrency(data.totalNetProfit)} over 30 days.${data.topByProfit ? ` Top performer: ${data.topByProfit.title}.` : ""}`;
+
+  insightCache.set(cacheKey, { text, timestamp: Date.now() });
+  return text;
+}
+
+// ─── Inventory insight ─────────────────────────────────────────────────────
+
+export async function getInventoryInsight(userId: string, brand?: string): Promise<string> {
+  const cacheKey = `inventory:${userId}:${brand ?? "all"}`;
+  const cached = insightCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.text;
+  }
+
+  const data = await fetchInsightData(userId, brand);
+  if (!data) return "No active products found.";
+
+  const dataSummary = {
+    period: "Last 30 days",
+    products: data.rows.map(r => ({
+      name: r.title,
+      grossSales: r.grossSales,
+      daysOfStockLeft: r.daysLeft,
+    })),
+    lowStockProducts: data.lowStock.map(r => ({
+      name: r.title,
+      daysLeft: r.daysLeft,
+    })),
+  };
+
+  const prompt = `You are an Amazon FBA inventory analyst. Analyze the inventory levels and provide a concise insight about stock health — which products are at risk of stockout, which have excess inventory, and recommended reorder actions.
+
+Rules:
+- Maximum 2-3 sentences in a flowing paragraph
+- Flag any products with <30 days of stock urgently
+- If products are out of stock (0 days), emphasize immediate action
+- Reference products by their short name
+- Be specific with day counts`;
+
+  const result = await callClaude(dataSummary, prompt);
+  const lowCount = data.lowStock.length;
+  const text = result ?? `${lowCount} product${lowCount !== 1 ? "s have" : " has"} less than 30 days of stock remaining.${data.lowStock[0] ? ` ${data.lowStock[0].title} (${data.lowStock[0].daysLeft}d) needs immediate reorder attention.` : ""}`;
+
+  insightCache.set(cacheKey, { text, timestamp: Date.now() });
+  return text;
+}
+
+// ─── Cashflow insight ──────────────────────────────────────────────────────
+
+export async function getCashflowInsight(userId: string, brand?: string): Promise<string> {
+  const cacheKey = `cashflow:${userId}:${brand ?? "all"}`;
+  const cached = insightCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.text;
+  }
+
+  const data = await fetchInsightData(userId, brand);
+  if (!data) return "No data available for cashflow analysis.";
+
+  const dataSummary = {
+    period: "Last 30 days",
+    totals: {
+      grossSales: data.totalGrossSales,
+      refunds: data.totalRefunds,
+      amazonFees: data.totalFees,
+      cogs: data.totalCogs,
+      adSpend: data.totalAdSpend,
+      reimbursements: data.totalReimbursements,
+      indirectExpenses: data.indirectExpenseTotal,
+      netProfit: data.totalNetProfit,
+    },
+  };
+
+  const prompt = `You are an Amazon FBA financial analyst. Analyze the cashflow data and provide a concise insight about cash position — net cash flow trend, biggest cash drains, and recommendations for improving cash flow.
+
+Rules:
+- Maximum 2-3 sentences in a flowing paragraph
+- Focus on cash in vs cash out
+- Highlight the biggest cost categories (fees, ads, COGS)
+- Be specific with dollar amounts
+- Suggest one actionable improvement`;
+
+  const cashIn = round(data.totalGrossSales - data.totalRefunds);
+  const cashOut = round(data.totalFees + data.totalAdSpend + data.indirectExpenseTotal);
+  const result = await callClaude(dataSummary, prompt);
+  const text = result ?? `30-day cash in: ${fmtCurrency(cashIn)}. Cash out: ${fmtCurrency(cashOut)} (fees ${fmtCurrency(data.totalFees)}, ads ${fmtCurrency(data.totalAdSpend)}, expenses ${fmtCurrency(data.indirectExpenseTotal)}). Net: ${fmtCurrency(data.totalNetProfit)}.`;
+
+  insightCache.set(cacheKey, { text, timestamp: Date.now() });
+  return text;
 }

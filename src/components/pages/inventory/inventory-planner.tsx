@@ -70,9 +70,7 @@ export function InventoryPlanner() {
   return (
     <div className="space-y-4 p-6">
       {/* AI Insight */}
-      <AIInsightBanner
-        message={`${lowStockCount} product${lowStockCount !== 1 ? "s have" : " has"} less than 30 days of stock remaining. Garlic Press (25d) and Bamboo Cutting Board (19d) need immediate reorder attention. Total stock value across all channels: $12,471. Consider consolidating your next PO to reduce shipping costs.`}
-      />
+      <AIInsightBanner page="inventory" />
 
       {/* Top controls */}
       <div className="flex items-center gap-3 flex-wrap">

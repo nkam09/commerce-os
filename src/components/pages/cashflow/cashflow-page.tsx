@@ -70,7 +70,7 @@ export function CashflowPage({ initialData }: Props) {
   return (
     <div className="space-y-6">
       {/* 1. AI Insight Banner */}
-      <AIInsightBanner message={buildAIBannerMessage(data.positionCards)} />
+      <AIInsightBanner page="cashflow" />
 
       {/* 2. Summary Cards */}
       <CashflowSummaryCards cards={data.positionCards} />

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils/cn";
+import { useBrandStore } from "@/lib/stores/brand-store";
 
 const DEFAULT_MESSAGE =
   "AI insights will appear here based on your latest performance data.";
@@ -9,45 +10,56 @@ const DEFAULT_MESSAGE =
 export type AIInsightBannerProps = {
   /** Static message — takes priority over dynamic fetch when provided. */
   message?: string;
-  /** When page="dashboard", auto-fetches from /api/dashboard/insight. */
+  /**
+   * When set, auto-fetches from /api/dashboard/insight?page=<page>.
+   * Supported: "dashboard", "products", "inventory", "cashflow".
+   */
   page?: string;
   className?: string;
 };
 
 // Module-level cache so the insight persists across tab switches / re-mounts
-// within the same browser session.
-let cachedInsight: string | null = null;
+// within the same browser session. Keyed by "page:brand".
+const cachedInsights = new Map<string, string>();
 
 export function AIInsightBanner({
   message,
   page,
   className,
 }: AIInsightBannerProps) {
+  const brand = useBrandStore((s) => s.selectedBrand);
+  const cacheKey = `${page ?? "static"}:${brand}`;
   const [dynamicMessage, setDynamicMessage] = useState<string | null>(
-    cachedInsight
+    cachedInsights.get(cacheKey) ?? null
   );
-  const fetchedRef = useRef(false);
+  const fetchedRef = useRef<string | null>(null);
 
   useEffect(() => {
-    // Only auto-fetch when page="dashboard" and no explicit message override
-    if (page !== "dashboard" || message) return;
-    // Skip if we already have a cached result
-    if (cachedInsight || fetchedRef.current) return;
-    fetchedRef.current = true;
+    // Only auto-fetch when page is set and no explicit message override
+    if (!page || message) return;
+    // Skip if we already fetched for this exact key
+    if (fetchedRef.current === cacheKey && cachedInsights.has(cacheKey)) {
+      setDynamicMessage(cachedInsights.get(cacheKey)!);
+      return;
+    }
+    fetchedRef.current = cacheKey;
 
     (async () => {
       try {
-        const res = await fetch("/api/dashboard/insight");
+        const brandParam = brand && brand !== "All Brands"
+          ? `&brand=${encodeURIComponent(brand)}`
+          : "";
+        const res = await fetch(`/api/dashboard/insight?page=${page}${brandParam}`);
         const json = await res.json();
         if (res.ok && json.ok && json.data?.message) {
-          cachedInsight = json.data.message;
+          cachedInsights.set(cacheKey, json.data.message);
           setDynamicMessage(json.data.message);
         }
       } catch {
         // Silently fail — will show default message
       }
     })();
-  }, [page, message]);
+  }, [page, message, brand, cacheKey]);
 
   // Priority: explicit message prop > fetched dynamic > default
   const displayMessage = message ?? dynamicMessage ?? DEFAULT_MESSAGE;

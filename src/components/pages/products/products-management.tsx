@@ -451,9 +451,7 @@ export function ProductsManagement({ initialData }: { initialData?: ProductsPage
 
   return (
     <div className="space-y-4 p-6">
-     <AIInsightBanner
-        message={`${data.products.length} products tracked. Average profit per unit: ${formatCurrency(data.products.reduce((s, p) => s + p.profitPerUnit, 0) / data.products.length)}. ${data.products.sort((a, b) => b.profitPerUnit - a.profitPerUnit)[0]?.title ?? "N/A"} has the highest profit margin at ${formatCurrency(data.products.sort((a, b) => b.profitPerUnit - a.profitPerUnit)[0]?.profitPerUnit ?? 0)}/unit. ${missingCogsCount > 0 ? `${missingCogsCount} products are missing COGS data.` : "All products have COGS configured."}`}
-      />
+     <AIInsightBanner page="products" />
 
       {/* Filters */}
       <div className="flex items-center gap-3 flex-wrap">

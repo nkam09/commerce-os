@@ -1,13 +1,38 @@
 import { NextRequest } from "next/server";
 import { requireUser } from "@/lib/auth/require-user";
 import { apiSuccess, apiServerError, parseBrand } from "@/lib/utils/api";
-import { getDashboardInsight } from "@/lib/services/ai-insight-service";
+import {
+  getDashboardInsight,
+  getProductsInsight,
+  getInventoryInsight,
+  getCashflowInsight,
+} from "@/lib/services/ai-insight-service";
 
+/**
+ * GET /api/dashboard/insight?page=dashboard|products|inventory|cashflow&brand=...
+ */
 export async function GET(req: NextRequest) {
   try {
     const { userId } = await requireUser();
     const brand = parseBrand(req.nextUrl.searchParams);
-    const message = await getDashboardInsight(userId, brand);
+    const page = req.nextUrl.searchParams.get("page") ?? "dashboard";
+
+    let message: string;
+    switch (page) {
+      case "products":
+        message = await getProductsInsight(userId, brand);
+        break;
+      case "inventory":
+        message = await getInventoryInsight(userId, brand);
+        break;
+      case "cashflow":
+        message = await getCashflowInsight(userId, brand);
+        break;
+      default:
+        message = await getDashboardInsight(userId, brand);
+        break;
+    }
+
     return apiSuccess({ message });
   } catch (err) {
     return apiServerError(err);

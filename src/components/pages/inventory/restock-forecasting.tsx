@@ -64,9 +64,7 @@ export function RestockForecasting() {
   return (
     <div className="space-y-5">
       {/* AI Insight */}
-      <AIInsightBanner
-        message="2 products need immediate reorder: Knife Set (14d runway) and Pepper Mill (18d runway). Your Garlic Press at 22d runway should be ordered within 5 days to avoid stockout given 70-day lead time via sea freight."
-      />
+      <AIInsightBanner page="inventory" />
 
       {/* Page title */}
       <div>
