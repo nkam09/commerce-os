@@ -53,6 +53,8 @@ function OrderDetailPanelInner({
   const [shipments, setShipments] = useState<SupplierOrderShipment[]>(
     (order.shipments ?? []).map((s) => ({
       ...s,
+      placementFee: s.placementFee ?? 0,
+      shippingCost: s.shippingCost ?? 0,
       items: (s.items ?? []).map((it) => ({ ...it })),
     }))
   );
@@ -69,6 +71,26 @@ function OrderDetailPanelInner({
   const fmt = useCallback((n: number) => formatOrderCurrency(n, cur), [cur]);
 
   const whStats = useMemo(() => getWarehouseStats({ ...form, lineItems: items, shipments, payments }), [form, items, shipments, payments]);
+
+  // ASIN → description & unit price lookups, built from current line items (excluding one-time fees)
+  const asinToDescription = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const item of items) {
+      if (item.isOneTimeFee) continue;
+      if (item.asin && item.description) m.set(item.asin, item.description);
+    }
+    return m;
+  }, [items]);
+  const asinToUnitPrice = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const item of items) {
+      if (item.isOneTimeFee) continue;
+      if (item.asin) m.set(item.asin, item.unitPrice);
+    }
+    return m;
+  }, [items]);
+
+  const productionComplete = Boolean(form.actProductionEnd && form.actProductionEnd !== "");
 
   const estProdDays = form.estProductionDays ?? 36;
   const estDelDays = form.estDeliveryDays ?? 71;
@@ -126,6 +148,8 @@ function OrderDetailPanelInner({
         status: "Pending",
         notes: null,
         sortOrder: prev.length,
+        placementFee: 0,
+        shippingCost: 0,
         items: newItems,
       },
     ]);
@@ -322,7 +346,14 @@ function OrderDetailPanelInner({
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Inventory &amp; Shipments</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <Field label="Warehouse Name"><input value={form.warehouseName ?? ""} onChange={(e) => updateField("warehouseName", e.target.value || null)} className="input-field" placeholder="e.g. Rivera Air Freight Corp" /></Field>
-              <Field label="Total Units Received at Warehouse"><input type="number" value={form.totalUnitsReceived ?? 0} onChange={(e) => updateField("totalUnitsReceived", parseInt(e.target.value) || 0)} className="input-field" /></Field>
+              <Field label="Total Units Received at Warehouse">
+                <input type="number" value={form.totalUnitsReceived ?? 0} onChange={(e) => updateField("totalUnitsReceived", parseInt(e.target.value) || 0)} className="input-field" />
+                {!productionComplete && (
+                  <p className="mt-1 text-2xs text-muted-foreground italic">
+                    Set &ldquo;Actual Production End&rdquo; in the timeline to enable warehouse tracking
+                  </p>
+                )}
+              </Field>
             </div>
 
             {/* Warehouse summary — per-ASIN breakdown + totals */}
@@ -334,6 +365,7 @@ function OrderDetailPanelInner({
                   <thead>
                     <tr className="bg-elevated/50 text-muted-foreground">
                       <th className="px-2 py-1.5 text-left font-medium">ASIN</th>
+                      <th className="px-2 py-1.5 text-left font-medium">Description</th>
                       <th className="px-2 py-1.5 text-right font-medium">Ordered</th>
                       <th className="px-2 py-1.5 text-right font-medium">Shipped</th>
                       <th className="px-2 py-1.5 text-right font-medium">At Warehouse</th>
@@ -342,37 +374,40 @@ function OrderDetailPanelInner({
                   <tbody>
                     {whStats.byAsin.map((b) => {
                       const overShipped = b.shipped > b.ordered;
+                      const description = asinToDescription.get(b.asin) ?? "—";
                       return (
                         <tr key={b.asin} className="border-t border-border">
                           <td className="px-2 py-1 font-mono text-foreground">{b.asin}</td>
+                          <td className="px-2 py-1 text-foreground max-w-[180px] truncate" title={description}>{description}</td>
                           <td className="px-2 py-1 text-right tabular-nums">{b.ordered.toLocaleString()}</td>
                           <td className={cn("px-2 py-1 text-right tabular-nums", overShipped && "text-red-400 font-medium")}>
                             {b.shipped.toLocaleString()}
                           </td>
-                          <td className={cn("px-2 py-1 text-right tabular-nums", b.remaining < 0 && "text-red-400 font-medium")}>
-                            {b.remaining.toLocaleString()}
+                          <td className={cn("px-2 py-1 text-right tabular-nums", productionComplete && b.remaining < 0 && "text-red-400 font-medium", !productionComplete && "text-muted-foreground italic")}>
+                            {productionComplete ? b.remaining.toLocaleString() : "Pending"}
                           </td>
                         </tr>
                       );
                     })}
                     <tr className="border-t border-border bg-elevated/30 font-semibold">
                       <td className="px-2 py-1.5 text-foreground">Total</td>
+                      <td className="px-2 py-1.5 text-muted-foreground text-2xs">&nbsp;</td>
                       <td className="px-2 py-1.5 text-right tabular-nums text-foreground">{whStats.totalOrdered.toLocaleString()}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums text-foreground">{whStats.totalShipped.toLocaleString()}</td>
-                      <td className={cn("px-2 py-1.5 text-right tabular-nums", whStats.totalAtWarehouse < 0 ? "text-red-400" : "text-foreground")}>
-                        {whStats.totalAtWarehouse.toLocaleString()}
+                      <td className={cn("px-2 py-1.5 text-right tabular-nums", productionComplete ? (whStats.totalAtWarehouse < 0 ? "text-red-400" : "text-foreground") : "text-muted-foreground italic font-normal")}>
+                        {productionComplete ? whStats.totalAtWarehouse.toLocaleString() : "Pending production complete"}
                       </td>
                     </tr>
                   </tbody>
                 </table>
               )}
             </div>
-            {whStats.totalOrdered > 0 && (
+            {productionComplete && whStats.totalOrdered > 0 && (
               <div className="w-full bg-elevated rounded-full h-2 overflow-hidden">
                 <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${Math.min(100, (whStats.totalShipped / whStats.totalOrdered) * 100)}%` }} />
               </div>
             )}
-            {whStats.totalAtWarehouse < 0 && <p className="text-2xs text-red-400">Warning: shipped more units than received at warehouse</p>}
+            {productionComplete && whStats.totalAtWarehouse < 0 && <p className="text-2xs text-red-400">Warning: shipped more units than received at warehouse</p>}
             {whStats.byAsin.some((b) => b.shipped > b.ordered) && <p className="text-2xs text-red-400">Warning: some ASINs shipped more than ordered</p>}
 
             {/* FBA Shipments — one card per shipment, with per-ASIN item rows */}
@@ -405,6 +440,12 @@ function OrderDetailPanelInner({
                 {shipments.map((s, idx) => {
                   const shipTotal = s.items.reduce((sum, it) => sum + (it.units || 0), 0);
                   const asinCount = s.items.length;
+                  // Shipment item value = sum(units * unitPrice) over items, plus placement + shipping
+                  const itemsValue = s.items.reduce(
+                    (sum, it) => sum + (it.units || 0) * (asinToUnitPrice.get(it.asin) ?? 0),
+                    0
+                  );
+                  const shipmentTotalCost = itemsValue + (s.placementFee ?? 0) + (s.shippingCost ?? 0);
                   // Per-ASIN validation: warn if item units exceed available at warehouse
                   const availableByAsin = new Map<string, number>();
                   for (const b of whStats.byAsin) {
@@ -454,6 +495,7 @@ function OrderDetailPanelInner({
                           <thead>
                             <tr className="text-muted-foreground">
                               <th className="px-3 py-1.5 text-left font-medium">ASIN</th>
+                              <th className="px-3 py-1.5 text-left font-medium">Description</th>
                               <th className="px-3 py-1.5 text-right font-medium w-24">Units</th>
                               <th className="px-3 py-1.5 text-right font-medium w-20">Avail.</th>
                             </tr>
@@ -462,9 +504,11 @@ function OrderDetailPanelInner({
                             {s.items.map((it, itemIdx) => {
                               const available = availableByAsin.get(it.asin) ?? 0;
                               const over = it.units > available;
+                              const description = asinToDescription.get(it.asin) ?? "—";
                               return (
                                 <tr key={itemIdx} className="border-t border-border">
                                   <td className="px-3 py-1 font-mono text-foreground">{it.asin}</td>
+                                  <td className="px-3 py-1 text-foreground max-w-[160px] truncate" title={description}>{description}</td>
                                   <td className="px-3 py-1 text-right">
                                     <input
                                       type="number"
@@ -486,9 +530,37 @@ function OrderDetailPanelInner({
                           </tbody>
                         </table>
                       )}
+
+                      {/* Costs row */}
+                      <div className="grid grid-cols-2 gap-3 px-3 py-2 border-t border-border bg-card">
+                        <div>
+                          <label className="block text-2xs font-medium text-muted-foreground mb-0.5">Placement Fee</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={s.placementFee ?? 0}
+                            onChange={(e) => updateShipment(idx, "placementFee", parseFloat(e.target.value) || 0)}
+                            className="w-full rounded-md border border-border bg-elevated px-2 py-1 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-2xs font-medium text-muted-foreground mb-0.5">Shipping Cost</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={s.shippingCost ?? 0}
+                            onChange={(e) => updateShipment(idx, "shippingCost", parseFloat(e.target.value) || 0)}
+                            className="w-full rounded-md border border-border bg-elevated px-2 py-1 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary"
+                          />
+                        </div>
+                      </div>
+
                       <div className="flex flex-wrap items-center gap-3 px-3 py-2 border-t border-border bg-elevated/20 text-2xs">
                         <span className="text-muted-foreground">
                           Total: <span className="text-foreground font-medium tabular-nums">{shipTotal.toLocaleString()}</span> units across {asinCount} ASIN{asinCount === 1 ? "" : "s"}
+                        </span>
+                        <span className="text-muted-foreground">
+                          Cost: <span className="text-foreground font-medium tabular-nums">{fmt(shipmentTotalCost)}</span>
                         </span>
                         <div className="ml-auto flex items-center gap-2">
                           <label className="text-muted-foreground">Received:</label>

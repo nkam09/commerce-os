@@ -812,6 +812,8 @@ model SupplierOrderShipment {
   status        String        @default("Pending")
   notes         String?
   sortOrder     Int           @default(0)
+  placementFee  Decimal       @default(0) @db.Decimal(14, 4)
+  shippingCost  Decimal       @default(0) @db.Decimal(14, 4)
   createdAt     DateTime      @default(now())
 
   items         SupplierOrderShipmentItem[]

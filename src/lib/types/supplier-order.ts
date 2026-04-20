@@ -38,6 +38,10 @@ export type SupplierOrderShipment = {
   status: string;
   notes: string | null;
   sortOrder: number;
+  /** FBA placement fee charged by Amazon for this shipment (in order currency). */
+  placementFee: number;
+  /** Outbound shipping cost (carrier/3PL) for this shipment (in order currency). */
+  shippingCost: number;
   items: SupplierOrderShipmentItem[];
 };
 

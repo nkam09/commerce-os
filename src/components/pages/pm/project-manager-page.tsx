@@ -364,6 +364,8 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
           status: s.status,
           notes: s.notes,
           sortOrder: s.sortOrder,
+          placementFee: s.placementFee ?? 0,
+          shippingCost: s.shippingCost ?? 0,
           items: (s.items ?? []).map((it) => ({
             asin: it.asin,
             units: it.units,

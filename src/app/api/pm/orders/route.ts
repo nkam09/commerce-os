@@ -153,6 +153,8 @@ export async function POST(request: Request) {
                 receivedDate?: string | null;
                 status?: string;
                 notes?: string | null;
+                placementFee?: number;
+                shippingCost?: number;
                 items?: { asin: string; units: number }[];
               },
               i: number
@@ -167,6 +169,8 @@ export async function POST(request: Request) {
                 receivedDate: s.receivedDate ? new Date(s.receivedDate) : null,
                 status: s.status ?? "Pending",
                 notes: s.notes ?? null,
+                placementFee: s.placementFee ?? 0,
+                shippingCost: s.shippingCost ?? 0,
                 sortOrder: i,
                 items: {
                   create: shipItems.map((it) => ({
@@ -256,6 +260,8 @@ function serializeOrder(order: any) {
       status: s.status,
       notes: s.notes ?? null,
       sortOrder: s.sortOrder,
+      placementFee: Number(s.placementFee ?? 0),
+      shippingCost: Number(s.shippingCost ?? 0),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       items: (s.items ?? []).map((it: any) => ({
         id: it.id,
