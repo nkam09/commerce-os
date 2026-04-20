@@ -508,12 +508,17 @@ function OrderDetailPanelInner({
                       <th className="px-2 py-1.5 text-right font-medium">Ordered</th>
                       <th className="px-2 py-1.5 text-right font-medium">Shipped</th>
                       <th className="px-2 py-1.5 text-right font-medium">At Warehouse</th>
+                      <th className="px-2 py-1.5 text-right font-medium">Boxes</th>
                     </tr>
                   </thead>
                   <tbody>
                     {whStats.byAsin.map((b) => {
                       const overShipped = b.shipped > b.ordered;
                       const description = asinToDescription.get(b.asin) ?? "—";
+                      const upb = asinToLineItem.get(b.asin)?.unitsPerBox ?? null;
+                      const boxesAtWarehouse = productionComplete && upb && upb > 0
+                        ? Math.ceil(Math.max(0, b.remaining) / upb)
+                        : null;
                       return (
                         <tr key={b.asin} className="border-t border-border">
                           <td className="px-2 py-1 font-mono text-foreground">{b.asin}</td>
@@ -525,18 +530,38 @@ function OrderDetailPanelInner({
                           <td className={cn("px-2 py-1 text-right tabular-nums", productionComplete && b.remaining < 0 && "text-red-400 font-medium", !productionComplete && "text-muted-foreground italic")}>
                             {productionComplete ? b.remaining.toLocaleString() : "Pending"}
                           </td>
+                          <td className={cn("px-2 py-1 text-right tabular-nums", boxesAtWarehouse == null && "text-muted-foreground")}>
+                            {boxesAtWarehouse != null ? boxesAtWarehouse.toLocaleString() : "—"}
+                          </td>
                         </tr>
                       );
                     })}
-                    <tr className="border-t border-border bg-elevated/30 font-semibold">
-                      <td className="px-2 py-1.5 text-foreground">Total</td>
-                      <td className="px-2 py-1.5 text-muted-foreground text-2xs">&nbsp;</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-foreground">{whStats.totalOrdered.toLocaleString()}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-foreground">{whStats.totalShipped.toLocaleString()}</td>
-                      <td className={cn("px-2 py-1.5 text-right tabular-nums", productionComplete ? (whStats.totalAtWarehouse < 0 ? "text-red-400" : "text-foreground") : "text-muted-foreground italic font-normal")}>
-                        {productionComplete ? whStats.totalAtWarehouse.toLocaleString() : "Pending production complete"}
-                      </td>
-                    </tr>
+                    {(() => {
+                      const totalBoxesAtWarehouse = productionComplete
+                        ? whStats.byAsin.reduce((sum, b) => {
+                            const upb = asinToLineItem.get(b.asin)?.unitsPerBox ?? null;
+                            return sum + (upb && upb > 0 ? Math.ceil(Math.max(0, b.remaining) / upb) : 0);
+                          }, 0)
+                        : null;
+                      const anyBoxInfo = whStats.byAsin.some((b) => {
+                        const upb = asinToLineItem.get(b.asin)?.unitsPerBox ?? null;
+                        return upb != null && upb > 0;
+                      });
+                      return (
+                        <tr className="border-t border-border bg-elevated/30 font-semibold">
+                          <td className="px-2 py-1.5 text-foreground">Total</td>
+                          <td className="px-2 py-1.5 text-muted-foreground text-2xs">&nbsp;</td>
+                          <td className="px-2 py-1.5 text-right tabular-nums text-foreground">{whStats.totalOrdered.toLocaleString()}</td>
+                          <td className="px-2 py-1.5 text-right tabular-nums text-foreground">{whStats.totalShipped.toLocaleString()}</td>
+                          <td className={cn("px-2 py-1.5 text-right tabular-nums", productionComplete ? (whStats.totalAtWarehouse < 0 ? "text-red-400" : "text-foreground") : "text-muted-foreground italic font-normal")}>
+                            {productionComplete ? whStats.totalAtWarehouse.toLocaleString() : "Pending production complete"}
+                          </td>
+                          <td className={cn("px-2 py-1.5 text-right tabular-nums", totalBoxesAtWarehouse == null && "text-muted-foreground font-normal")}>
+                            {totalBoxesAtWarehouse != null && anyBoxInfo ? totalBoxesAtWarehouse.toLocaleString() : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })()}
                   </tbody>
                 </table>
               )}
@@ -656,6 +681,7 @@ function OrderDetailPanelInner({
                               <th className="px-3 py-1.5 text-left font-medium">ASIN</th>
                               <th className="px-3 py-1.5 text-left font-medium">Description</th>
                               <th className="px-3 py-1.5 text-right font-medium w-24">Units</th>
+                              <th className="px-3 py-1.5 text-right font-medium w-16">Boxes</th>
                               <th className="px-3 py-1.5 text-right font-medium w-20">Avail.</th>
                             </tr>
                           </thead>
@@ -664,6 +690,8 @@ function OrderDetailPanelInner({
                               const available = availableByAsin.get(it.asin) ?? 0;
                               const over = it.units > available;
                               const description = asinToDescription.get(it.asin) ?? "—";
+                              const upb = asinToLineItem.get(it.asin)?.unitsPerBox ?? null;
+                              const boxesNeeded = upb && upb > 0 ? Math.ceil(it.units / upb) : null;
                               return (
                                 <tr key={itemIdx} className="border-t border-border">
                                   <td className="px-3 py-1 font-mono text-foreground">{it.asin}</td>
@@ -679,6 +707,9 @@ function OrderDetailPanelInner({
                                         over ? "text-red-400" : "text-foreground"
                                       )}
                                     />
+                                  </td>
+                                  <td className={cn("px-3 py-1 text-right tabular-nums", boxesNeeded == null && "text-muted-foreground")}>
+                                    {boxesNeeded != null ? boxesNeeded.toLocaleString() : "—"}
                                   </td>
                                   <td className={cn("px-3 py-1 text-right tabular-nums text-muted-foreground", over && "text-red-400")}>
                                     {available.toLocaleString()}
