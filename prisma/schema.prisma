@@ -123,6 +123,8 @@ model User {
   settlements       Settlement[]
   cashflowScenarios CashflowScenario[]
   pmSpaces          PMSpace[]
+  reviews           Review[]
+  reviewScrapeJobs  ReviewScrapeJob[]
 
   @@map("users")
 }
@@ -838,4 +840,51 @@ model SupplierOrderShipmentItem {
   @@index([shipmentId])
   @@index([asin])
   @@map("supplier_order_shipment_items")
+}
+
+model ReviewScrapeJob {
+  id           String    @id @default(cuid())
+  userId       String
+  asin         String
+  status       String    @default("pending") // pending, running, completed, failed
+  totalReviews Int?
+  scrapedCount Int       @default(0)
+  errorMessage String?
+  startedAt    DateTime  @default(now())
+  completedAt  DateTime?
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviews Review[]
+
+  @@index([userId, asin])
+  @@index([userId, startedAt])
+  @@map("review_scrape_jobs")
+}
+
+model Review {
+  id               String   @id @default(cuid())
+  userId           String
+  asin             String
+  scrapeJobId      String?
+  amazonReviewId   String
+  rating           Int
+  title            String?
+  body             String?  @db.Text
+  authorName       String?
+  reviewDate       DateTime
+  verifiedPurchase Boolean  @default(false)
+  helpfulVotes     Int      @default(0)
+  variant          String?
+  imageUrls        String[]
+  country          String?
+  createdAt        DateTime @default(now())
+
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scrapeJob ReviewScrapeJob? @relation(fields: [scrapeJobId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, asin, amazonReviewId])
+  @@index([userId, asin])
+  @@index([userId, asin, reviewDate])
+  @@index([userId, asin, rating])
+  @@map("reviews")
 }

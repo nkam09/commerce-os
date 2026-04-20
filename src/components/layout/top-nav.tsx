@@ -68,6 +68,7 @@ const NAV_TABS: NavTab[] = [
     ],
   },
   { label: "Products", href: "/products", matchPrefixes: ["/products"] },
+  { label: "Reviews", href: "/reviews", matchPrefixes: ["/reviews"] },
   { label: "Expenses", href: "/expenses", matchPrefixes: ["/expenses"] },
   { label: "Reports", href: "/reports", matchPrefixes: ["/reports"] },
   { label: "Cashflow", href: "/cash-flow", matchPrefixes: ["/cash-flow"] },
