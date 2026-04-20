@@ -781,6 +781,12 @@ model SupplierOrderItem {
   isOneTimeFee Boolean       @default(false)
   sortOrder    Int           @default(0)
 
+  unitsPerBox  Int?
+  boxLengthIn  Decimal?      @db.Decimal(8, 2)
+  boxWidthIn   Decimal?      @db.Decimal(8, 2)
+  boxHeightIn  Decimal?      @db.Decimal(8, 2)
+  boxWeightLbs Decimal?      @db.Decimal(8, 2)
+
   createdAt    DateTime      @default(now())
 
   @@map("supplier_order_items")

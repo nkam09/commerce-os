@@ -349,6 +349,11 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
           unit: item.unit,
           unitPrice: item.unitPrice,
           isOneTimeFee: item.isOneTimeFee,
+          unitsPerBox: item.unitsPerBox,
+          boxLengthIn: item.boxLengthIn,
+          boxWidthIn: item.boxWidthIn,
+          boxHeightIn: item.boxHeightIn,
+          boxWeightLbs: item.boxWeightLbs,
         })),
         payments: updated.payments.map((p) => ({
           label: p.label,

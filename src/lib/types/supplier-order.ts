@@ -11,6 +11,14 @@ export type SupplierOrderItem = {
   unitPrice: number;
   isOneTimeFee: boolean;
   sortOrder: number;
+  /** Units per carton/box (for FBA shipment planning). */
+  unitsPerBox: number | null;
+  /** Box outer dimensions in inches. */
+  boxLengthIn: number | null;
+  boxWidthIn: number | null;
+  boxHeightIn: number | null;
+  /** Box gross weight in pounds. */
+  boxWeightLbs: number | null;
 };
 
 export type SupplierOrderPayment = {

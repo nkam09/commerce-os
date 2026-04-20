@@ -122,6 +122,11 @@ export function OrderForm({ spaceId, onClose, onCreated }: OrderFormProps) {
         unitPrice: p.unitPrice,
         isOneTimeFee: false,
         sortOrder: i,
+        unitsPerBox: null,
+        boxLengthIn: null,
+        boxWidthIn: null,
+        boxHeightIn: null,
+        boxWeightLbs: null,
       }))
     );
   }, []);
@@ -147,7 +152,20 @@ export function OrderForm({ spaceId, onClose, onCreated }: OrderFormProps) {
   const addItem = useCallback(() => {
     setItems((prev) => [
       ...prev,
-      { asin: "", description: "", quantity: 0, unit: "pc.", unitPrice: 0, isOneTimeFee: false, sortOrder: prev.length },
+      {
+        asin: "",
+        description: "",
+        quantity: 0,
+        unit: "pc.",
+        unitPrice: 0,
+        isOneTimeFee: false,
+        sortOrder: prev.length,
+        unitsPerBox: null,
+        boxLengthIn: null,
+        boxWidthIn: null,
+        boxHeightIn: null,
+        boxWeightLbs: null,
+      },
     ]);
   }, []);
 
@@ -216,6 +234,11 @@ export function OrderForm({ spaceId, onClose, onCreated }: OrderFormProps) {
             unitPrice: li.unitPrice,
             isOneTimeFee: false,
             sortOrder: i,
+            unitsPerBox: null,
+            boxLengthIn: null,
+            boxWidthIn: null,
+            boxHeightIn: null,
+            boxWeightLbs: null,
           }))
         );
         // Track per-item confidence under "lineItems" as the worst item confidence
@@ -275,6 +298,11 @@ export function OrderForm({ spaceId, onClose, onCreated }: OrderFormProps) {
             unit: item.unit,
             unitPrice: item.unitPrice,
             isOneTimeFee: item.isOneTimeFee,
+            unitsPerBox: item.unitsPerBox,
+            boxLengthIn: item.boxLengthIn,
+            boxWidthIn: item.boxWidthIn,
+            boxHeightIn: item.boxHeightIn,
+            boxWeightLbs: item.boxWeightLbs,
           })),
           payments,
         }),

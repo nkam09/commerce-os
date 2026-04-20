@@ -92,6 +92,33 @@ function OrderDetailPanelInner({
 
   const productionComplete = Boolean(form.actProductionEnd && form.actProductionEnd !== "");
 
+  // Per-line-item box stats: boxes needed + total weight for this line item.
+  // Totals footer sums across all product (non-fee) line items that have unitsPerBox set.
+  const boxTotals = useMemo(() => {
+    let totalBoxes = 0;
+    let totalWeight = 0;
+    let anyBoxData = false;
+    for (const li of items) {
+      if (li.isOneTimeFee) continue;
+      if (!li.unitsPerBox || li.unitsPerBox <= 0) continue;
+      anyBoxData = true;
+      const boxes = Math.ceil(li.quantity / li.unitsPerBox);
+      totalBoxes += boxes;
+      if (li.boxWeightLbs != null) totalWeight += boxes * li.boxWeightLbs;
+    }
+    return { totalBoxes, totalWeight, anyBoxData };
+  }, [items]);
+
+  // ASIN → full line item lookup (for shipment planning summary lookup).
+  const asinToLineItem = useMemo(() => {
+    const m = new Map<string, SupplierOrderItem>();
+    for (const li of items) {
+      if (li.isOneTimeFee || !li.asin) continue;
+      m.set(li.asin, li);
+    }
+    return m;
+  }, [items]);
+
   const estProdDays = form.estProductionDays ?? 36;
   const estDelDays = form.estDeliveryDays ?? 71;
   const estProdDate = form.orderDate ? addDays(form.orderDate, estProdDays) : null;
@@ -108,11 +135,27 @@ function OrderDetailPanelInner({
     setForm((prev) => ({ ...prev, [key]: value }));
   }, []);
 
-  const updateItem = useCallback((idx: number, key: keyof SupplierOrderItem, value: number | string | boolean) => {
+  const updateItem = useCallback((idx: number, key: keyof SupplierOrderItem, value: number | string | boolean | null) => {
     setItems((prev) => prev.map((item, i) => (i === idx ? { ...item, [key]: value } : item)));
   }, []);
   const addItem = useCallback(() => {
-    setItems((prev) => [...prev, { asin: "", description: "", quantity: 0, unit: "pc.", unitPrice: 0, isOneTimeFee: false, sortOrder: prev.length }]);
+    setItems((prev) => [
+      ...prev,
+      {
+        asin: "",
+        description: "",
+        quantity: 0,
+        unit: "pc.",
+        unitPrice: 0,
+        isOneTimeFee: false,
+        sortOrder: prev.length,
+        unitsPerBox: null,
+        boxLengthIn: null,
+        boxWidthIn: null,
+        boxHeightIn: null,
+        boxWeightLbs: null,
+      },
+    ]);
   }, []);
   const removeItem = useCallback((idx: number) => { setItems((prev) => prev.filter((_, i) => i !== idx)); }, []);
 
@@ -276,29 +319,115 @@ function OrderDetailPanelInner({
               </button>
             </div>
             <div className="overflow-x-auto rounded-lg border border-border">
-              <table className="w-full text-xs">
+              <table className="text-xs">
                 <thead><tr className="bg-elevated/50 text-muted-foreground">
-                  <th className="px-2 py-1.5 text-left font-medium">ASIN</th><th className="px-2 py-1.5 text-left font-medium">Description</th><th className="px-2 py-1.5 text-right font-medium">Qty</th><th className="px-2 py-1.5 text-left font-medium">Unit</th><th className="px-2 py-1.5 text-right font-medium">Price</th><th className="px-2 py-1.5 text-right font-medium">Total</th>
+                  <th className="px-2 py-1.5 text-left font-medium">ASIN</th>
+                  <th className="px-2 py-1.5 text-left font-medium">Description</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Qty</th>
+                  <th className="px-2 py-1.5 text-left font-medium">Unit</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Price</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Total</th>
                   {isNonUSD && <th className="px-2 py-1.5 text-right font-medium">USD</th>}
-                  <th className="px-2 py-1.5 text-center font-medium w-10">Fee</th><th className="px-1 py-1.5 w-6"></th>
+                  <th className="px-2 py-1.5 text-right font-medium">Units/Box</th>
+                  <th className="px-2 py-1.5 text-center font-medium whitespace-nowrap">Box Dims (L × W × H in)</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Box Wt (lbs)</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Boxes</th>
+                  <th className="px-2 py-1.5 text-center font-medium w-10">Fee</th>
+                  <th className="px-1 py-1.5 w-6"></th>
                 </tr></thead>
                 <tbody>
                   {items.map((item, idx) => {
                     const total = item.quantity * item.unitPrice;
+                    const boxesNeeded = !item.isOneTimeFee && item.unitsPerBox && item.unitsPerBox > 0
+                      ? Math.ceil(item.quantity / item.unitsPerBox)
+                      : null;
                     return (
                       <tr key={idx} className="border-t border-border hover:bg-elevated/30">
                         <td className="px-2 py-1"><input value={item.asin} onChange={(e) => updateItem(idx, "asin", e.target.value)} className="w-24 bg-transparent text-foreground outline-none" /></td>
-                        <td className="px-2 py-1"><input value={item.description} onChange={(e) => updateItem(idx, "description", e.target.value)} className="w-20 bg-transparent text-foreground outline-none" /></td>
+                        <td className="px-2 py-1"><input value={item.description} onChange={(e) => updateItem(idx, "description", e.target.value)} className="w-24 bg-transparent text-foreground outline-none" /></td>
                         <td className="px-2 py-1 text-right"><input type="number" value={item.quantity} onChange={(e) => updateItem(idx, "quantity", parseInt(e.target.value) || 0)} className="w-16 bg-transparent text-foreground text-right outline-none" /></td>
                         <td className="px-2 py-1"><input value={item.unit} onChange={(e) => updateItem(idx, "unit", e.target.value)} className="w-10 bg-transparent text-foreground outline-none" /></td>
                         <td className="px-2 py-1 text-right"><input type="number" step="0.01" value={item.unitPrice} onChange={(e) => updateItem(idx, "unitPrice", parseFloat(e.target.value) || 0)} className="w-16 bg-transparent text-foreground text-right outline-none" /></td>
                         <td className="px-2 py-1 text-right text-foreground tabular-nums font-medium">{fmt(total)}</td>
                         {isNonUSD && <td className="px-2 py-1 text-right text-muted-foreground tabular-nums">{fmtUSD(toUSD(total, cur, rate))}</td>}
+                        <td className="px-2 py-1 text-right">
+                          <input
+                            type="number"
+                            min={0}
+                            value={item.unitsPerBox ?? ""}
+                            onChange={(e) => updateItem(idx, "unitsPerBox", e.target.value === "" ? null : parseInt(e.target.value) || 0)}
+                            disabled={item.isOneTimeFee}
+                            placeholder="—"
+                            className="w-14 bg-transparent text-foreground text-right outline-none tabular-nums disabled:opacity-40"
+                          />
+                        </td>
+                        <td className="px-2 py-1">
+                          <div className="flex items-center gap-0.5">
+                            <input
+                              type="number"
+                              step="0.1"
+                              min={0}
+                              value={item.boxLengthIn ?? ""}
+                              onChange={(e) => updateItem(idx, "boxLengthIn", e.target.value === "" ? null : parseFloat(e.target.value) || 0)}
+                              disabled={item.isOneTimeFee}
+                              placeholder="L"
+                              className="w-10 bg-transparent text-foreground text-right outline-none tabular-nums disabled:opacity-40"
+                            />
+                            <span className="text-muted-foreground">×</span>
+                            <input
+                              type="number"
+                              step="0.1"
+                              min={0}
+                              value={item.boxWidthIn ?? ""}
+                              onChange={(e) => updateItem(idx, "boxWidthIn", e.target.value === "" ? null : parseFloat(e.target.value) || 0)}
+                              disabled={item.isOneTimeFee}
+                              placeholder="W"
+                              className="w-10 bg-transparent text-foreground text-right outline-none tabular-nums disabled:opacity-40"
+                            />
+                            <span className="text-muted-foreground">×</span>
+                            <input
+                              type="number"
+                              step="0.1"
+                              min={0}
+                              value={item.boxHeightIn ?? ""}
+                              onChange={(e) => updateItem(idx, "boxHeightIn", e.target.value === "" ? null : parseFloat(e.target.value) || 0)}
+                              disabled={item.isOneTimeFee}
+                              placeholder="H"
+                              className="w-10 bg-transparent text-foreground text-right outline-none tabular-nums disabled:opacity-40"
+                            />
+                          </div>
+                        </td>
+                        <td className="px-2 py-1 text-right">
+                          <input
+                            type="number"
+                            step="0.01"
+                            min={0}
+                            value={item.boxWeightLbs ?? ""}
+                            onChange={(e) => updateItem(idx, "boxWeightLbs", e.target.value === "" ? null : parseFloat(e.target.value) || 0)}
+                            disabled={item.isOneTimeFee}
+                            placeholder="—"
+                            className="w-16 bg-transparent text-foreground text-right outline-none tabular-nums disabled:opacity-40"
+                          />
+                        </td>
+                        <td className="px-2 py-1 text-right text-foreground tabular-nums">
+                          {boxesNeeded != null ? boxesNeeded.toLocaleString() : <span className="text-muted-foreground">—</span>}
+                        </td>
                         <td className="px-2 py-1 text-center"><input type="checkbox" checked={item.isOneTimeFee} onChange={(e) => updateItem(idx, "isOneTimeFee", e.target.checked)} className="rounded" title="One-time fee" /></td>
                         <td className="px-1 py-1"><button type="button" onClick={() => removeItem(idx)} className="rounded p-0.5 hover:bg-elevated text-muted-foreground hover:text-red-400 transition"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3"><path d="M4 4l8 8M12 4l-8 8" /></svg></button></td>
                       </tr>
                     );
                   })}
+                  {boxTotals.anyBoxData && (
+                    <tr className="border-t border-border bg-elevated/30 font-semibold">
+                      <td className="px-2 py-1.5 text-foreground" colSpan={isNonUSD ? 7 : 6}>Carton totals</td>
+                      <td className="px-2 py-1.5"></td>
+                      <td className="px-2 py-1.5"></td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-foreground">{boxTotals.totalWeight > 0 ? `${boxTotals.totalWeight.toFixed(2)} lbs` : "—"}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-foreground">{boxTotals.totalBoxes.toLocaleString()}</td>
+                      <td className="px-2 py-1.5"></td>
+                      <td className="px-1 py-1.5"></td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -456,6 +585,26 @@ function OrderDetailPanelInner({
                     0
                   );
                   const shipmentTotalCost = itemsValue + (s.placementFee ?? 0) + (s.shippingCost ?? 0);
+
+                  // Shipment box planning — for each item, how many boxes and total weight
+                  const shipmentPlan: { asin: string; description: string; boxes: number; weight: number }[] = [];
+                  let shipmentTotalBoxes = 0;
+                  let shipmentTotalWeight = 0;
+                  for (const shipItem of s.items) {
+                    if (shipItem.units <= 0) continue;
+                    const li = asinToLineItem.get(shipItem.asin);
+                    if (!li || !li.unitsPerBox || li.unitsPerBox <= 0) continue;
+                    const boxes = Math.ceil(shipItem.units / li.unitsPerBox);
+                    const weight = li.boxWeightLbs != null ? boxes * li.boxWeightLbs : 0;
+                    shipmentPlan.push({
+                      asin: shipItem.asin,
+                      description: li.description,
+                      boxes,
+                      weight,
+                    });
+                    shipmentTotalBoxes += boxes;
+                    shipmentTotalWeight += weight;
+                  }
                   // Per-ASIN validation: warn if item units exceed available at warehouse
                   const availableByAsin = new Map<string, number>();
                   for (const b of whStats.byAsin) {
@@ -539,6 +688,23 @@ function OrderDetailPanelInner({
                             })}
                           </tbody>
                         </table>
+                      )}
+
+                      {/* Shipment planning summary */}
+                      {shipmentPlan.length > 0 && (
+                        <div className="px-3 py-2 border-t border-border bg-elevated/10 text-2xs leading-relaxed">
+                          <span className="text-muted-foreground">Ships as: </span>
+                          <span className="text-foreground tabular-nums">
+                            {shipmentPlan
+                              .map((p) => `${p.boxes} box${p.boxes === 1 ? "" : "es"} × ${p.asin} (${p.description})`)
+                              .join(", ")}
+                          </span>
+                          <span className="text-muted-foreground"> — Total: </span>
+                          <span className="text-foreground font-medium tabular-nums">
+                            {shipmentTotalBoxes.toLocaleString()} box{shipmentTotalBoxes === 1 ? "" : "es"}
+                            {shipmentTotalWeight > 0 ? `, ${shipmentTotalWeight.toFixed(0)} lbs` : ""}
+                          </span>
+                        </div>
                       )}
 
                       {/* Costs row */}

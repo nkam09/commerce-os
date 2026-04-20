@@ -117,6 +117,11 @@ export async function PUT(request: Request, ctx: Params) {
               unit?: string;
               unitPrice: number;
               isOneTimeFee?: boolean;
+              unitsPerBox?: number | null;
+              boxLengthIn?: number | null;
+              boxWidthIn?: number | null;
+              boxHeightIn?: number | null;
+              boxWeightLbs?: number | null;
             },
             i: number
           ) => ({
@@ -128,6 +133,11 @@ export async function PUT(request: Request, ctx: Params) {
             unitPrice: item.unitPrice,
             isOneTimeFee: item.isOneTimeFee ?? false,
             sortOrder: i,
+            unitsPerBox: item.unitsPerBox ?? null,
+            boxLengthIn: item.boxLengthIn ?? null,
+            boxWidthIn: item.boxWidthIn ?? null,
+            boxHeightIn: item.boxHeightIn ?? null,
+            boxWeightLbs: item.boxWeightLbs ?? null,
           })
         ),
       });
@@ -272,6 +282,11 @@ function serializeOrder(order: any) {
       unitPrice: Number(item.unitPrice),
       isOneTimeFee: item.isOneTimeFee ?? false,
       sortOrder: item.sortOrder,
+      unitsPerBox: item.unitsPerBox ?? null,
+      boxLengthIn: item.boxLengthIn != null ? Number(item.boxLengthIn) : null,
+      boxWidthIn: item.boxWidthIn != null ? Number(item.boxWidthIn) : null,
+      boxHeightIn: item.boxHeightIn != null ? Number(item.boxHeightIn) : null,
+      boxWeightLbs: item.boxWeightLbs != null ? Number(item.boxWeightLbs) : null,
     })),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     payments: (order.payments ?? []).map((p: any) => ({
