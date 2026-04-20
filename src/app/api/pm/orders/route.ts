@@ -23,7 +23,10 @@ export async function GET(request: Request) {
       include: {
         lineItems: { orderBy: { sortOrder: "asc" } },
         payments: { orderBy: { sortOrder: "asc" } },
-        shipments: { orderBy: { sortOrder: "asc" } },
+        shipments: {
+          orderBy: { sortOrder: "asc" },
+          include: { items: true },
+        },
       },
       orderBy: { orderDate: "desc" },
     });
@@ -65,6 +68,7 @@ export async function POST(request: Request) {
       notes,
       lineItems,
       payments,
+      shipments,
     } = body;
 
     if (!spaceId || !orderNumber || !orderDate) {
@@ -138,11 +142,50 @@ export async function POST(request: Request) {
             })
           ),
         },
+        shipments: {
+          create: (shipments ?? []).map(
+            (
+              s: {
+                units?: number;
+                destination?: string;
+                amazonShipId?: string | null;
+                shipDate?: string | null;
+                receivedDate?: string | null;
+                status?: string;
+                notes?: string | null;
+                items?: { asin: string; units: number }[];
+              },
+              i: number
+            ) => {
+              const shipItems = s.items ?? [];
+              const totalUnits = shipItems.reduce((sum, it) => sum + (it.units || 0), 0);
+              return {
+                units: s.units ?? totalUnits,
+                destination: s.destination ?? "FBA",
+                amazonShipId: s.amazonShipId ?? null,
+                shipDate: s.shipDate ? new Date(s.shipDate) : null,
+                receivedDate: s.receivedDate ? new Date(s.receivedDate) : null,
+                status: s.status ?? "Pending",
+                notes: s.notes ?? null,
+                sortOrder: i,
+                items: {
+                  create: shipItems.map((it) => ({
+                    asin: it.asin,
+                    units: it.units ?? 0,
+                  })),
+                },
+              };
+            }
+          ),
+        },
       },
       include: {
         lineItems: { orderBy: { sortOrder: "asc" } },
         payments: { orderBy: { sortOrder: "asc" } },
-        shipments: { orderBy: { sortOrder: "asc" } },
+        shipments: {
+          orderBy: { sortOrder: "asc" },
+          include: { items: true },
+        },
       },
     });
 
@@ -213,6 +256,12 @@ function serializeOrder(order: any) {
       status: s.status,
       notes: s.notes ?? null,
       sortOrder: s.sortOrder,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      items: (s.items ?? []).map((it: any) => ({
+        id: it.id,
+        asin: it.asin,
+        units: it.units,
+      })),
     })),
     createdAt: order.createdAt.toISOString(),
     updatedAt: order.updatedAt.toISOString(),

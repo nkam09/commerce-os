@@ -18,7 +18,10 @@ export async function GET(_request: Request, ctx: Params) {
       include: {
         lineItems: { orderBy: { sortOrder: "asc" } },
         payments: { orderBy: { sortOrder: "asc" } },
-        shipments: { orderBy: { sortOrder: "asc" } },
+        shipments: {
+          orderBy: { sortOrder: "asc" },
+          include: { items: true },
+        },
       },
     });
     if (!order) return apiNotFound("Order");
@@ -149,36 +152,41 @@ export async function PUT(request: Request, ctx: Params) {
       });
     }
 
-    // Replace shipments if provided
+    // Replace shipments (with nested items) if provided
     if (shipments !== undefined) {
+      // Cascading delete removes shipment items automatically
       await prisma.supplierOrderShipment.deleteMany({ where: { orderId: id } });
-      if (shipments.length > 0) {
-        await prisma.supplierOrderShipment.createMany({
-          data: shipments.map(
-            (
-              s: {
-                units: number;
-                destination?: string;
-                amazonShipId?: string | null;
-                shipDate?: string | null;
-                receivedDate?: string | null;
-                status?: string;
-                notes?: string | null;
-              },
-              i: number
-            ) => ({
-              id: `${id}_ship_${i}_${Date.now()}`.slice(0, 25),
-              orderId: id,
-              units: s.units,
-              destination: s.destination ?? "FBA",
-              amazonShipId: s.amazonShipId ?? null,
-              shipDate: s.shipDate ? new Date(s.shipDate) : null,
-              receivedDate: s.receivedDate ? new Date(s.receivedDate) : null,
-              status: s.status ?? "Pending",
-              notes: s.notes ?? null,
-              sortOrder: i,
-            })
-          ),
+      for (let i = 0; i < shipments.length; i++) {
+        const s = shipments[i] as {
+          units?: number;
+          destination?: string;
+          amazonShipId?: string | null;
+          shipDate?: string | null;
+          receivedDate?: string | null;
+          status?: string;
+          notes?: string | null;
+          items?: { asin: string; units: number }[];
+        };
+        const shipItems = s.items ?? [];
+        const totalUnits = shipItems.reduce((sum, it) => sum + (it.units || 0), 0);
+        await prisma.supplierOrderShipment.create({
+          data: {
+            orderId: id,
+            units: s.units ?? totalUnits,
+            destination: s.destination ?? "FBA",
+            amazonShipId: s.amazonShipId ?? null,
+            shipDate: s.shipDate ? new Date(s.shipDate) : null,
+            receivedDate: s.receivedDate ? new Date(s.receivedDate) : null,
+            status: s.status ?? "Pending",
+            notes: s.notes ?? null,
+            sortOrder: i,
+            items: {
+              create: shipItems.map((it) => ({
+                asin: it.asin,
+                units: it.units ?? 0,
+              })),
+            },
+          },
         });
       }
     }
@@ -189,7 +197,10 @@ export async function PUT(request: Request, ctx: Params) {
       include: {
         lineItems: { orderBy: { sortOrder: "asc" } },
         payments: { orderBy: { sortOrder: "asc" } },
-        shipments: { orderBy: { sortOrder: "asc" } },
+        shipments: {
+          orderBy: { sortOrder: "asc" },
+          include: { items: true },
+        },
       },
     });
 
@@ -277,6 +288,12 @@ function serializeOrder(order: any) {
       status: s.status,
       notes: s.notes ?? null,
       sortOrder: s.sortOrder,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      items: (s.items ?? []).map((it: any) => ({
+        id: it.id,
+        asin: it.asin,
+        units: it.units,
+      })),
     })),
     createdAt: order.createdAt.toISOString(),
     updatedAt: order.updatedAt.toISOString(),

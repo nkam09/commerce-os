@@ -364,6 +364,10 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
           status: s.status,
           notes: s.notes,
           sortOrder: s.sortOrder,
+          items: (s.items ?? []).map((it) => ({
+            asin: it.asin,
+            units: it.units,
+          })),
         })),
       }),
     });

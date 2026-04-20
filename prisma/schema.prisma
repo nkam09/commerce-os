@@ -814,5 +814,20 @@ model SupplierOrderShipment {
   sortOrder     Int           @default(0)
   createdAt     DateTime      @default(now())
 
+  items         SupplierOrderShipmentItem[]
+
   @@map("supplier_order_shipments")
+}
+
+model SupplierOrderShipmentItem {
+  id         String                @id @default(cuid())
+  shipmentId String
+  shipment   SupplierOrderShipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  asin       String
+  units      Int                   @default(0)
+  createdAt  DateTime              @default(now())
+
+  @@index([shipmentId])
+  @@index([asin])
+  @@map("supplier_order_shipment_items")
 }

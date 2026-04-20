@@ -21,8 +21,15 @@ export type SupplierOrderPayment = {
   sortOrder: number;
 };
 
+export type SupplierOrderShipmentItem = {
+  id?: string;
+  asin: string;
+  units: number;
+};
+
 export type SupplierOrderShipment = {
   id?: string;
+  /** Total units across all items — derived (sum of items.units), but stored for backwards compat. */
   units: number;
   destination: string;
   amazonShipId: string | null;
@@ -31,6 +38,7 @@ export type SupplierOrderShipment = {
   status: string;
   notes: string | null;
   sortOrder: number;
+  items: SupplierOrderShipmentItem[];
 };
 
 export type SupplierOrderData = {
@@ -158,14 +166,74 @@ export function daysBetween(a: string, b: string): number {
   return Math.round((db.getTime() - da.getTime()) / (1000 * 60 * 60 * 24));
 }
 
-/** Compute warehouse inventory summary from order data */
+export type WarehouseAsinStats = {
+  asin: string;
+  ordered: number;
+  shipped: number;
+  received: number;
+  remaining: number;
+};
+
+/**
+ * Compute warehouse inventory summary from order data.
+ *
+ * Returns both per-ASIN breakdown and aggregated totals. `received` per ASIN is
+ * pro-rated across ASINs based on ordered ratio (we don't track per-ASIN receipt
+ * separately). `remaining` = received - shipped.
+ *
+ * Aliases `shippedToFBA` / `atWarehouse` are preserved for backwards compatibility
+ * with existing list/board view callers.
+ */
 export function getWarehouseStats(order: SupplierOrderData) {
-  const totalOrdered = order.lineItems
-    .filter((i) => !i.isOneTimeFee)
-    .reduce((s, i) => s + i.quantity, 0);
-  const shippedToFBA = (order.shipments ?? [])
-    .filter((s) => s.status !== "Cancelled")
-    .reduce((s, sh) => s + sh.units, 0);
-  const atWarehouse = order.totalUnitsReceived - shippedToFBA;
-  return { totalOrdered, shippedToFBA, atWarehouse };
+  const byAsin = new Map<string, { ordered: number; shipped: number; received: number; remaining: number }>();
+
+  // Ordered: from line items (excluding one-time fees)
+  for (const item of order.lineItems) {
+    if (item.isOneTimeFee) continue;
+    if (!item.asin) continue;
+    const existing = byAsin.get(item.asin) ?? { ordered: 0, shipped: 0, received: 0, remaining: 0 };
+    existing.ordered += item.quantity;
+    byAsin.set(item.asin, existing);
+  }
+
+  // Shipped: sum across all non-cancelled shipments' items
+  for (const shipment of order.shipments ?? []) {
+    if (shipment.status === "Cancelled") continue;
+    for (const item of shipment.items ?? []) {
+      if (!item.asin) continue;
+      const existing = byAsin.get(item.asin) ?? { ordered: 0, shipped: 0, received: 0, remaining: 0 };
+      existing.shipped += item.units;
+      byAsin.set(item.asin, existing);
+    }
+  }
+
+  const totalOrdered = Array.from(byAsin.values()).reduce((s, b) => s + b.ordered, 0);
+  const totalReceived = order.totalUnitsReceived ?? 0;
+
+  // Pro-rate received across ASINs based on ordered ratio; compute remaining.
+  for (const stats of byAsin.values()) {
+    stats.received = totalOrdered > 0
+      ? Math.round((stats.ordered / totalOrdered) * totalReceived)
+      : 0;
+    stats.remaining = stats.received - stats.shipped;
+  }
+
+  const totalShipped = Array.from(byAsin.values()).reduce((s, b) => s + b.shipped, 0);
+  const totalAtWarehouse = totalReceived - totalShipped;
+
+  const byAsinArr: WarehouseAsinStats[] = Array.from(byAsin.entries()).map(([asin, stats]) => ({
+    asin,
+    ...stats,
+  }));
+
+  return {
+    byAsin: byAsinArr,
+    totalOrdered,
+    totalShipped,
+    totalReceived,
+    totalAtWarehouse,
+    // Backwards-compat aliases
+    shippedToFBA: totalShipped,
+    atWarehouse: totalAtWarehouse,
+  };
 }

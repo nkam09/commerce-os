@@ -7,6 +7,7 @@ import type {
   SupplierOrderItem,
   SupplierOrderPayment,
   SupplierOrderShipment,
+  SupplierOrderShipmentItem,
 } from "@/lib/types/supplier-order";
 import {
   ORDER_STATUSES,
@@ -49,7 +50,12 @@ function OrderDetailPanelInner({
   const [form, setForm] = useState({ ...order });
   const [items, setItems] = useState<SupplierOrderItem[]>(order.lineItems.map((i) => ({ ...i })));
   const [payments, setPayments] = useState<SupplierOrderPayment[]>(order.payments.map((p) => ({ ...p })));
-  const [shipments, setShipments] = useState<SupplierOrderShipment[]>((order.shipments ?? []).map((s) => ({ ...s })));
+  const [shipments, setShipments] = useState<SupplierOrderShipment[]>(
+    (order.shipments ?? []).map((s) => ({
+      ...s,
+      items: (s.items ?? []).map((it) => ({ ...it })),
+    }))
+  );
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [saving, setSaving] = useState(false);
   const [fxLoading, setFxLoading] = useState(false);
@@ -99,9 +105,45 @@ function OrderDetailPanelInner({
     setShipments((prev) => prev.map((s, i) => (i === idx ? { ...s, [key]: value } : s)));
   }, []);
   const addShipment = useCallback(() => {
-    setShipments((prev) => [...prev, { units: 0, destination: "FBA", amazonShipId: null, shipDate: null, receivedDate: null, status: "Pending", notes: null, sortOrder: prev.length }]);
-  }, []);
+    // Pre-populate item rows for each product ASIN (excluding one-time fees)
+    const productAsins: string[] = [];
+    const seen = new Set<string>();
+    for (const li of items) {
+      if (li.isOneTimeFee || !li.asin) continue;
+      if (seen.has(li.asin)) continue;
+      seen.add(li.asin);
+      productAsins.push(li.asin);
+    }
+    const newItems: SupplierOrderShipmentItem[] = productAsins.map((asin) => ({ asin, units: 0 }));
+    setShipments((prev) => [
+      ...prev,
+      {
+        units: 0,
+        destination: "FBA",
+        amazonShipId: null,
+        shipDate: null,
+        receivedDate: null,
+        status: "Pending",
+        notes: null,
+        sortOrder: prev.length,
+        items: newItems,
+      },
+    ]);
+  }, [items]);
   const removeShipment = useCallback((idx: number) => { setShipments((prev) => prev.filter((_, i) => i !== idx)); }, []);
+
+  const updateShipmentItem = useCallback((shipIdx: number, itemIdx: number, units: number) => {
+    setShipments((prev) =>
+      prev.map((s, i) =>
+        i === shipIdx
+          ? {
+              ...s,
+              items: s.items.map((it, j) => (j === itemIdx ? { ...it, units } : it)),
+            }
+          : s
+      )
+    );
+  }, []);
 
   const refreshExchangeRate = useCallback(async () => {
     setFxLoading(true);
@@ -119,7 +161,12 @@ function OrderDetailPanelInner({
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      onSave({ ...form, transactionFeePct: feePct, lineItems: items, payments, shipments });
+      // Recompute each shipment's total units from its items before save
+      const normalizedShipments = shipments.map((s) => ({
+        ...s,
+        units: s.items.reduce((sum, it) => sum + (it.units || 0), 0),
+      }));
+      onSave({ ...form, transactionFeePct: feePct, lineItems: items, payments, shipments: normalizedShipments });
     } finally { setSaving(false); }
   }, [form, feePct, items, payments, shipments, onSave]);
 
@@ -278,58 +325,202 @@ function OrderDetailPanelInner({
               <Field label="Total Units Received at Warehouse"><input type="number" value={form.totalUnitsReceived ?? 0} onChange={(e) => updateField("totalUnitsReceived", parseInt(e.target.value) || 0)} className="input-field" /></Field>
             </div>
 
-            {/* Warehouse summary */}
-            <div className="rounded-md border border-border p-3 space-y-2">
-              <div className="grid grid-cols-3 gap-2 text-xs">
-                <div><span className="text-muted-foreground">Ordered</span><div className="font-medium text-foreground">{whStats.totalOrdered.toLocaleString()}</div></div>
-                <div><span className="text-muted-foreground">Shipped to FBA</span><div className="font-medium text-foreground">{whStats.shippedToFBA.toLocaleString()}</div></div>
-                <div><span className="text-muted-foreground">At Warehouse</span><div className={cn("font-medium", whStats.atWarehouse < 0 ? "text-red-400" : "text-foreground")}>{whStats.atWarehouse.toLocaleString()}</div></div>
-              </div>
-              {whStats.totalOrdered > 0 && (
-                <div className="w-full bg-elevated rounded-full h-2 overflow-hidden">
-                  <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${Math.min(100, (whStats.shippedToFBA / whStats.totalOrdered) * 100)}%` }} />
-                </div>
+            {/* Warehouse summary — per-ASIN breakdown + totals */}
+            <div className="rounded-md border border-border overflow-hidden">
+              {whStats.byAsin.length === 0 ? (
+                <div className="p-3 text-2xs text-muted-foreground text-center">No product line items yet</div>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-elevated/50 text-muted-foreground">
+                      <th className="px-2 py-1.5 text-left font-medium">ASIN</th>
+                      <th className="px-2 py-1.5 text-right font-medium">Ordered</th>
+                      <th className="px-2 py-1.5 text-right font-medium">Shipped</th>
+                      <th className="px-2 py-1.5 text-right font-medium">At Warehouse</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {whStats.byAsin.map((b) => {
+                      const overShipped = b.shipped > b.ordered;
+                      return (
+                        <tr key={b.asin} className="border-t border-border">
+                          <td className="px-2 py-1 font-mono text-foreground">{b.asin}</td>
+                          <td className="px-2 py-1 text-right tabular-nums">{b.ordered.toLocaleString()}</td>
+                          <td className={cn("px-2 py-1 text-right tabular-nums", overShipped && "text-red-400 font-medium")}>
+                            {b.shipped.toLocaleString()}
+                          </td>
+                          <td className={cn("px-2 py-1 text-right tabular-nums", b.remaining < 0 && "text-red-400 font-medium")}>
+                            {b.remaining.toLocaleString()}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    <tr className="border-t border-border bg-elevated/30 font-semibold">
+                      <td className="px-2 py-1.5 text-foreground">Total</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-foreground">{whStats.totalOrdered.toLocaleString()}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-foreground">{whStats.totalShipped.toLocaleString()}</td>
+                      <td className={cn("px-2 py-1.5 text-right tabular-nums", whStats.totalAtWarehouse < 0 ? "text-red-400" : "text-foreground")}>
+                        {whStats.totalAtWarehouse.toLocaleString()}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               )}
-              {whStats.atWarehouse < 0 && <p className="text-2xs text-red-400">Warning: shipped more units than received at warehouse</p>}
             </div>
+            {whStats.totalOrdered > 0 && (
+              <div className="w-full bg-elevated rounded-full h-2 overflow-hidden">
+                <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${Math.min(100, (whStats.totalShipped / whStats.totalOrdered) * 100)}%` }} />
+              </div>
+            )}
+            {whStats.totalAtWarehouse < 0 && <p className="text-2xs text-red-400">Warning: shipped more units than received at warehouse</p>}
+            {whStats.byAsin.some((b) => b.shipped > b.ordered) && <p className="text-2xs text-red-400">Warning: some ASINs shipped more than ordered</p>}
 
-            {/* FBA Shipments table */}
+            {/* FBA Shipments — one card per shipment, with per-ASIN item rows */}
             <div className="flex items-center justify-between">
               <span className="text-2xs font-medium text-muted-foreground">FBA Shipments</span>
-              <button type="button" onClick={addShipment} className="flex items-center gap-1 text-2xs text-primary hover:text-primary/80 transition"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3"><path d="M8 3v10M3 8h10" /></svg>Add Shipment</button>
+              {(() => {
+                const productCount = items.filter((i) => !i.isOneTimeFee && i.asin).length;
+                const disabled = productCount === 0;
+                return (
+                  <button
+                    type="button"
+                    onClick={addShipment}
+                    disabled={disabled}
+                    title={disabled ? "Add line items first" : undefined}
+                    className={cn(
+                      "flex items-center gap-1 text-2xs transition",
+                      disabled ? "text-muted-foreground/50 cursor-not-allowed" : "text-primary hover:text-primary/80"
+                    )}
+                  >
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3"><path d="M8 3v10M3 8h10" /></svg>
+                    Add Shipment
+                  </button>
+                );
+              })()}
             </div>
             {shipments.length === 0 ? (
               <div className="rounded-md border border-dashed border-border p-4 text-center text-2xs text-muted-foreground">No shipments yet — add one when you send units to FBA</div>
             ) : (
-              <div className="overflow-x-auto rounded-lg border border-border">
-                <table className="w-full text-xs">
-                  <thead><tr className="bg-elevated/50 text-muted-foreground">
-                    <th className="px-2 py-1.5 text-right font-medium w-14">Units</th>
-                    <th className="px-2 py-1.5 text-left font-medium">Ship ID</th>
-                    <th className="px-2 py-1.5 text-left font-medium">Ship Date</th>
-                    <th className="px-2 py-1.5 text-left font-medium">Received</th>
-                    <th className="px-2 py-1.5 text-left font-medium">Status</th>
-                    <th className="px-2 py-1.5 text-left font-medium">Notes</th>
-                    <th className="px-1 py-1.5 w-6"></th>
-                  </tr></thead>
-                  <tbody>
-                    {shipments.map((s, idx) => (
-                      <tr key={idx} className="border-t border-border hover:bg-elevated/30">
-                        <td className="px-2 py-1 text-right"><input type="number" value={s.units} onChange={(e) => updateShipment(idx, "units", parseInt(e.target.value) || 0)} className="w-14 bg-transparent text-foreground text-right outline-none" /></td>
-                        <td className="px-2 py-1"><input value={s.amazonShipId ?? ""} onChange={(e) => updateShipment(idx, "amazonShipId", e.target.value || null)} className="w-24 bg-transparent text-foreground outline-none" placeholder="FBA..." /></td>
-                        <td className="px-2 py-1"><input type="date" value={s.shipDate ?? ""} onChange={(e) => updateShipment(idx, "shipDate", e.target.value || null)} className="w-28 bg-transparent text-foreground outline-none" /></td>
-                        <td className="px-2 py-1"><input type="date" value={s.receivedDate ?? ""} onChange={(e) => updateShipment(idx, "receivedDate", e.target.value || null)} className="w-28 bg-transparent text-foreground outline-none" /></td>
-                        <td className="px-2 py-1">
-                          <select value={s.status} onChange={(e) => updateShipment(idx, "status", e.target.value)} className="bg-transparent text-foreground outline-none">
-                            {SHIPMENT_STATUSES.map((st) => <option key={st} value={st}>{st}</option>)}
-                          </select>
-                        </td>
-                        <td className="px-2 py-1"><input value={s.notes ?? ""} onChange={(e) => updateShipment(idx, "notes", e.target.value || null)} className="w-16 bg-transparent text-foreground outline-none" /></td>
-                        <td className="px-1 py-1"><button type="button" onClick={() => removeShipment(idx)} className="rounded p-0.5 hover:bg-elevated text-muted-foreground hover:text-red-400 transition"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3"><path d="M4 4l8 8M12 4l-8 8" /></svg></button></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="space-y-3">
+                {shipments.map((s, idx) => {
+                  const shipTotal = s.items.reduce((sum, it) => sum + (it.units || 0), 0);
+                  const asinCount = s.items.length;
+                  // Per-ASIN validation: warn if item units exceed available at warehouse
+                  const availableByAsin = new Map<string, number>();
+                  for (const b of whStats.byAsin) {
+                    // "Available" for this shipment = received - shipped in OTHER shipments
+                    const shippedElsewhere = b.shipped - (s.items.find((it) => it.asin === b.asin)?.units ?? 0);
+                    availableByAsin.set(b.asin, b.received - shippedElsewhere);
+                  }
+                  return (
+                    <div key={idx} className="rounded-lg border border-border overflow-hidden">
+                      <div className="flex flex-wrap items-center gap-2 bg-elevated/30 px-3 py-2 border-b border-border">
+                        <span className="text-2xs font-semibold text-muted-foreground">Shipment {idx + 1}</span>
+                        <input
+                          value={s.amazonShipId ?? ""}
+                          onChange={(e) => updateShipment(idx, "amazonShipId", e.target.value || null)}
+                          className="flex-1 min-w-[110px] text-xs bg-transparent text-foreground outline-none border-b border-border focus:border-primary"
+                          placeholder="FBA ID…"
+                        />
+                        <input
+                          type="date"
+                          value={s.shipDate ?? ""}
+                          onChange={(e) => updateShipment(idx, "shipDate", e.target.value || null)}
+                          className="text-xs bg-transparent text-foreground outline-none"
+                          title="Ship date"
+                        />
+                        <select
+                          value={s.status}
+                          onChange={(e) => updateShipment(idx, "status", e.target.value)}
+                          className="text-xs bg-transparent text-foreground outline-none"
+                        >
+                          {SHIPMENT_STATUSES.map((st) => <option key={st} value={st}>{st}</option>)}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => removeShipment(idx)}
+                          className="ml-auto rounded p-0.5 hover:bg-elevated text-muted-foreground hover:text-red-400 transition"
+                          title="Delete shipment"
+                        >
+                          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3"><path d="M4 4l8 8M12 4l-8 8" /></svg>
+                        </button>
+                      </div>
+                      {s.items.length === 0 ? (
+                        <div className="px-3 py-2 text-2xs text-muted-foreground">
+                          No ASIN rows. Add line items to the order first, then re-create this shipment.
+                        </div>
+                      ) : (
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="text-muted-foreground">
+                              <th className="px-3 py-1.5 text-left font-medium">ASIN</th>
+                              <th className="px-3 py-1.5 text-right font-medium w-24">Units</th>
+                              <th className="px-3 py-1.5 text-right font-medium w-20">Avail.</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {s.items.map((it, itemIdx) => {
+                              const available = availableByAsin.get(it.asin) ?? 0;
+                              const over = it.units > available;
+                              return (
+                                <tr key={itemIdx} className="border-t border-border">
+                                  <td className="px-3 py-1 font-mono text-foreground">{it.asin}</td>
+                                  <td className="px-3 py-1 text-right">
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      value={it.units}
+                                      onChange={(e) => updateShipmentItem(idx, itemIdx, parseInt(e.target.value) || 0)}
+                                      className={cn(
+                                        "w-20 bg-transparent text-right outline-none tabular-nums border-b border-border focus:border-primary",
+                                        over ? "text-red-400" : "text-foreground"
+                                      )}
+                                    />
+                                  </td>
+                                  <td className={cn("px-3 py-1 text-right tabular-nums text-muted-foreground", over && "text-red-400")}>
+                                    {available.toLocaleString()}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      )}
+                      <div className="flex flex-wrap items-center gap-3 px-3 py-2 border-t border-border bg-elevated/20 text-2xs">
+                        <span className="text-muted-foreground">
+                          Total: <span className="text-foreground font-medium tabular-nums">{shipTotal.toLocaleString()}</span> units across {asinCount} ASIN{asinCount === 1 ? "" : "s"}
+                        </span>
+                        <div className="ml-auto flex items-center gap-2">
+                          <label className="text-muted-foreground">Received:</label>
+                          <input
+                            type="date"
+                            value={s.receivedDate ?? ""}
+                            onChange={(e) => updateShipment(idx, "receivedDate", e.target.value || null)}
+                            className="text-xs bg-transparent text-foreground outline-none"
+                          />
+                        </div>
+                      </div>
+                      {s.notes !== null && s.notes !== "" ? (
+                        <div className="px-3 py-2 border-t border-border">
+                          <input
+                            value={s.notes}
+                            onChange={(e) => updateShipment(idx, "notes", e.target.value || null)}
+                            className="w-full text-2xs bg-transparent text-foreground outline-none"
+                            placeholder="Notes…"
+                          />
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => updateShipment(idx, "notes", "")}
+                          className="px-3 py-1 text-2xs text-muted-foreground hover:text-foreground transition border-t border-border w-full text-left"
+                        >
+                          + Add note
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </section>
