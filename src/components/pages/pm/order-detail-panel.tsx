@@ -347,12 +347,22 @@ function OrderDetailPanelInner({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <Field label="Warehouse Name"><input value={form.warehouseName ?? ""} onChange={(e) => updateField("warehouseName", e.target.value || null)} className="input-field" placeholder="e.g. Rivera Air Freight Corp" /></Field>
               <Field label="Total Units Received at Warehouse">
-                <input type="number" value={form.totalUnitsReceived ?? 0} onChange={(e) => updateField("totalUnitsReceived", parseInt(e.target.value) || 0)} className="input-field" />
-                {!productionComplete && (
+                <input
+                  type="number"
+                  value={form.totalUnitsReceived || ""}
+                  placeholder={productionComplete ? whStats.totalOrdered.toString() : "0"}
+                  onChange={(e) => updateField("totalUnitsReceived", parseInt(e.target.value) || 0)}
+                  className="input-field"
+                />
+                {!productionComplete ? (
                   <p className="mt-1 text-2xs text-muted-foreground italic">
                     Set &ldquo;Actual Production End&rdquo; in the timeline to enable warehouse tracking
                   </p>
-                )}
+                ) : whStats.receivedIsDefaulted ? (
+                  <p className="mt-1 text-2xs text-muted-foreground italic">
+                    Defaults to {whStats.totalOrdered.toLocaleString()} units (all produced). Override if partial shipment received.
+                  </p>
+                ) : null}
               </Field>
             </div>
 

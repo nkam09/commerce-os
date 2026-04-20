@@ -185,6 +185,11 @@ export type WarehouseAsinStats = {
  * pro-rated across ASINs based on ordered ratio (we don't track per-ASIN receipt
  * separately). `remaining` = received - shipped.
  *
+ * Auto-default rule: if production is complete (`actProductionEnd` set) and the
+ * user has NOT explicitly set `totalUnitsReceived` (falsy / 0), we default the
+ * received amount to `totalOrdered` — i.e. assume the full production run
+ * reached the warehouse. User can override by entering an explicit value.
+ *
  * Aliases `shippedToFBA` / `atWarehouse` are preserved for backwards compatibility
  * with existing list/board view callers.
  */
@@ -212,7 +217,17 @@ export function getWarehouseStats(order: SupplierOrderData) {
   }
 
   const totalOrdered = Array.from(byAsin.values()).reduce((s, b) => s + b.ordered, 0);
-  const totalReceived = order.totalUnitsReceived ?? 0;
+
+  // Auto-default received: explicit value wins; otherwise default to totalOrdered
+  // once production is complete; otherwise 0.
+  const productionComplete = Boolean(order.actProductionEnd && order.actProductionEnd !== "");
+  const explicitReceived = order.totalUnitsReceived ?? 0;
+  const totalReceived = explicitReceived > 0
+    ? explicitReceived
+    : productionComplete
+      ? totalOrdered
+      : 0;
+  const receivedIsDefaulted = explicitReceived <= 0 && productionComplete && totalOrdered > 0;
 
   // Pro-rate received across ASINs based on ordered ratio; compute remaining.
   for (const stats of byAsin.values()) {
@@ -236,6 +251,8 @@ export function getWarehouseStats(order: SupplierOrderData) {
     totalShipped,
     totalReceived,
     totalAtWarehouse,
+    productionComplete,
+    receivedIsDefaulted,
     // Backwards-compat aliases
     shippedToFBA: totalShipped,
     atWarehouse: totalAtWarehouse,
