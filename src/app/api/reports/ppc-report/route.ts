@@ -63,16 +63,26 @@ export async function GET(req: Request) {
 
     const filename = `ppc-report-${from}-to-${to}.xlsx`;
 
-    return new Response(new Uint8Array(buffer), {
-      status: 200,
-      headers: {
-        "Content-Type":
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename="${filename}"`,
-        "Content-Length": String(buffer.length),
-        "Cache-Control": "no-store",
-      },
-    });
+    const headers: Record<string, string> = {
+      "Content-Type":
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Length": String(buffer.length),
+      "Cache-Control": "no-store",
+      // Lets the Content-Disposition + our custom warnings header through CORS
+      // and makes the custom header readable from fetch() in the browser.
+      "Access-Control-Expose-Headers": "Content-Disposition, X-Report-Warnings",
+    };
+    if (data.warnings && data.warnings.length > 0) {
+      // Base64-encode JSON so arbitrary Unicode in warning messages doesn't
+      // violate HTTP header byte restrictions.
+      headers["X-Report-Warnings"] = Buffer.from(
+        JSON.stringify(data.warnings),
+        "utf-8"
+      ).toString("base64");
+    }
+
+    return new Response(new Uint8Array(buffer), { status: 200, headers });
   } catch (err) {
     if (err instanceof Error && err.message === "Unauthorized") {
       return apiUnauthorized();

@@ -31,15 +31,30 @@ function defaultToDate(): string {
 
 type Status = "idle" | "loading" | "error" | "success";
 
+/** Decode the X-Report-Warnings response header (base64-encoded JSON array). */
+function readWarningsHeader(res: Response): string[] {
+  const raw = res.headers.get("X-Report-Warnings");
+  if (!raw) return [];
+  try {
+    const decoded = typeof atob === "function" ? atob(raw) : "";
+    const parsed = JSON.parse(decoded);
+    return Array.isArray(parsed) ? parsed.filter((v) => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 function PPCReportCard() {
   const [from, setFrom] = useState<string>(defaultFromDate());
   const [to, setTo] = useState<string>(defaultToDate());
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
 
   const handleGenerate = useCallback(async () => {
     setStatus("loading");
     setError(null);
+    setWarnings([]);
 
     try {
       const params = new URLSearchParams({ from, to });
@@ -60,6 +75,10 @@ function PPCReportCard() {
         throw new Error(msg);
       }
 
+      // Read warnings BEFORE consuming the body — headers are cheap and
+      // may be used to show a partial-data banner after a successful download.
+      const reportWarnings = readWarningsHeader(res);
+
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -70,6 +89,7 @@ function PPCReportCard() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
+      setWarnings(reportWarnings);
       setStatus("success");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to generate report");
@@ -116,33 +136,53 @@ function PPCReportCard() {
         </label>
       </div>
 
-      <button
-        type="button"
-        onClick={handleGenerate}
-        disabled={isLoading}
-        className={cn(
-          "inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium",
-          "bg-primary text-primary-foreground hover:bg-primary/90",
-          "disabled:cursor-not-allowed disabled:opacity-60"
-        )}
-      >
-        {isLoading ? (
-          <>
-            <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
-            Generating report…
-          </>
-        ) : (
-          <>Generate PPC Report</>
-        )}
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={handleGenerate}
+          disabled={isLoading}
+          className={cn(
+            "inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium",
+            "bg-primary text-primary-foreground hover:bg-primary/90",
+            "disabled:cursor-not-allowed disabled:opacity-60"
+          )}
+        >
+          {isLoading ? (
+            <>
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
+              Generating report…
+            </>
+          ) : status === "success" || status === "error" ? (
+            <>Regenerate Report</>
+          ) : (
+            <>Generate PPC Report</>
+          )}
+        </button>
+      </div>
 
       {status === "error" && error && (
         <p className="mt-3 text-sm text-red-600">{error}</p>
       )}
-      {status === "success" && (
+      {status === "success" && warnings.length === 0 && (
         <p className="mt-3 text-sm text-green-600">
           Report downloaded successfully.
         </p>
+      )}
+      {status === "success" && warnings.length > 0 && (
+        <div className="mt-3 rounded-md border border-yellow-500/30 bg-yellow-500/10 p-3">
+          <p className="font-medium text-yellow-700 dark:text-yellow-400">
+            ⚠ Partial Data
+          </p>
+          <p className="mt-1 text-sm text-yellow-800 dark:text-yellow-300/90">
+            The workbook downloaded, but some sections are empty. See the
+            Summary sheet for details, or try regenerating:
+          </p>
+          <ul className="mt-1.5 list-disc pl-5 text-sm text-yellow-800 dark:text-yellow-300/90">
+            {warnings.map((w, i) => (
+              <li key={i}>{w}</li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );

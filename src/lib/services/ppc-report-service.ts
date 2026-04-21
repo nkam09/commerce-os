@@ -208,11 +208,15 @@ const safeDiv = (num: number, den: number): number =>
   den > 0 ? num / den : 0;
 
 /** Poll interval used while waiting for an Ads report to finish. */
-const POLL_INTERVAL_MS = 10_000;
-/** Max poll attempts — 60 × 10s = 10 minutes per report. Amazon's 30-day
- *  SUMMARY reports can take 5-10 minutes. All polls run in parallel so
- *  total wall time is still ~10 minutes max. */
-const POLL_MAX_ATTEMPTS = 60;
+const POLL_INTERVAL_MS = 15_000;
+/** Max poll attempts — 120 × 15s = 30 minutes per report. Amazon's 30-day
+ *  SUMMARY reports can take 10-20 minutes under load; 10 minutes was tight.
+ *  All polls run in parallel so total wall time is still ~30 minutes max,
+ *  bounded by the slowest individual report.
+ *  Note: this timeout applies to Ads (PPC) reports only. SP-API reports
+ *  (orders, inventory, settlements) have their own pollers with distinct
+ *  timeouts. */
+const POLL_MAX_ATTEMPTS = 120;
 
 const toNum = (v: unknown): number => {
   if (typeof v === "number") return v;
@@ -268,14 +272,19 @@ export async function generatePPCReportData(params: {
 
   // ── Setup Ads client ──────────────────────────────────────────────────────
   let ads: AdsApiClient | null = null;
+  let profileId: string | null = null;
   try {
     const cfg = getAdsConfigForUser();
+    profileId = cfg.profileId;
     ads = new AdsApiClient(cfg);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     warnings.push(`Ads client unavailable: ${msg}`);
     console.error(`[ppc-report] ads client init failed:`, msg);
   }
+
+  // Context string used in error logs for downstream debugging.
+  const reportContext = `userId=${params.userId} profileId=${profileId ?? "?"} range=${params.from}→${params.to}`;
 
   // ── Fetch all Ads reports IN PARALLEL ────────────────────────────────────
   // Sequential polling (old code) meant: createA → pollA → createB → pollB …
@@ -390,7 +399,10 @@ export async function generatePPCReportData(params: {
             } catch (err) {
               const msg = err instanceof Error ? err.message : String(err);
               warnings.push(`${spec.label} failed: ${msg}`);
-              console.error(`[ppc-report] !!! ${spec.label} failed:`, msg);
+              console.error(
+                `[ppc-report] !!! ${spec.label} poll/download failed (${reportContext} reportId=${reportId}):`,
+                msg
+              );
             }
           })()
         );
@@ -402,7 +414,10 @@ export async function generatePPCReportData(params: {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         warnings.push(`${spec.label} create failed: ${msg}`);
-        console.error(`[ppc-report] !!! ${spec.label} create failed:`, msg);
+        console.error(
+          `[ppc-report] !!! ${spec.label} create failed (${reportContext}):`,
+          msg
+        );
         // NO delay after failure — move to the next spec immediately.
       }
     }
@@ -414,10 +429,24 @@ export async function generatePPCReportData(params: {
     // Render's plan allows long-running requests (>60s observed to work).
     // Individual failures are caught per-task above and logged as warnings.
     const pollStart = Date.now();
+    // Per-task try/catch above means Promise.all never rejects — individual
+    // failures are logged and pushed to `warnings`. This makes the whole
+    // generator resilient to single-report timeouts: missing report keys
+    // fall through as empty arrays and their tabs render empty rather than
+    // aborting the whole workbook.
     await Promise.all(pollTasks);
     console.log(
       `[ppc-report] poll phase done in ${Date.now() - pollStart}ms`
     );
+
+    // Summary warning: single user-facing line listing which sections are empty.
+    const missingSpecs = specs.filter((s) => !results[s.key]);
+    if (missingSpecs.length > 0) {
+      const names = missingSpecs.map((s) => s.label).join(", ");
+      warnings.push(
+        `Some report sections timed out and are empty: ${names}. Try regenerating in a few minutes.`
+      );
+    }
   }
 
   const spCampaignRows: AdsReportRow[] = results.campaigns ?? [];
