@@ -68,7 +68,7 @@ function getToday(): Date {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }
 
-const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const MAX_VISIBLE_TASKS_MONTH = 3;
 const MAX_VISIBLE_TASKS_WEEK = 6;
@@ -132,9 +132,8 @@ function addWeeks(d: Date, n: number): Date {
 function startOfWeek(d: Date): Date {
   const result = new Date(d);
   const day = result.getDay();
-  // Monday-based: day 0 (Sun) -> shift back 6, day 1 (Mon) -> 0, etc.
-  const diff = day === 0 ? 6 : day - 1;
-  result.setDate(result.getDate() - diff);
+  // Sunday-based: day 0 (Sun) -> 0, day 1 (Mon) -> shift back 1, etc.
+  result.setDate(result.getDate() - day);
   return result;
 }
 
@@ -159,7 +158,7 @@ function buildMonthGrid(year: number, month: number): CalendarDay[] {
   const days: CalendarDay[] = [];
   const firstOfMonth = new Date(year, month, 1);
 
-  // Find the Monday before or on the first of the month
+  // Find the Sunday before or on the first of the month
   const gridStart = startOfWeek(firstOfMonth);
 
   // Always produce 6 weeks (42 days) so the grid is uniform

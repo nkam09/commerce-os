@@ -191,6 +191,16 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
     setShowExperimentForm(true);
   }, []);
 
+  const handleSelectExperiment = useCallback(
+    (id: string) => {
+      const exp = experiments.find((e) => e.id === id);
+      if (!exp) return;
+      setEditingExperiment(exp);
+      setShowExperimentForm(true);
+    },
+    [experiments]
+  );
+
   // Selected order
   const selectedOrder = useMemo<SupplierOrderData | null>(() => {
     if (!selectedOrderId || !selectedOrderSpaceId) return null;
@@ -217,6 +227,35 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
     }
     return result;
   }, [ordersBySpace]);
+
+  // Sidebar experiments grouped by spaceId
+  const sidebarExperiments = useMemo(() => {
+    const result: Record<string, { id: string; title: string; type: string; status: string; startDate: string; endDate: string }[]> = {};
+    for (const e of experiments) {
+      if (!e.spaceId) continue;
+      const arr = result[e.spaceId] ?? [];
+      arr.push({
+        id: e.id,
+        title: e.title,
+        type: e.type,
+        status: e.status,
+        startDate: e.startDate,
+        endDate: e.endDate,
+      });
+      result[e.spaceId] = arr;
+    }
+    // Sort each space's experiments: active first, then by start date desc
+    const STATUS_RANK: Record<string, number> = { Active: 0, Planned: 1, Completed: 2, Cancelled: 3 };
+    for (const key of Object.keys(result)) {
+      result[key].sort((a, b) => {
+        const ra = STATUS_RANK[a.status] ?? 99;
+        const rb = STATUS_RANK[b.status] ?? 99;
+        if (ra !== rb) return ra - rb;
+        return b.startDate.localeCompare(a.startDate);
+      });
+    }
+    return result;
+  }, [experiments]);
 
   // Find selected list info
   const selectedList = useMemo<PMListData | null>(() => {
@@ -734,6 +773,8 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
           selectedOrderId={selectedOrderId}
           selectedSpaceId={selectedOrderSpaceId}
           ordersBySpace={sidebarOrders}
+          experimentsBySpace={sidebarExperiments}
+          onSelectExperiment={handleSelectExperiment}
           onSelectList={handleSelectListWrapped}
           onSelectOrder={handleSelectOrder}
           onCreateSpace={handleCreateSpace}

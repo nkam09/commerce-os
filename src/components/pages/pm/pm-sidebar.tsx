@@ -3,12 +3,22 @@
 import { useState, useCallback } from "react";
 import { cn } from "@/lib/utils/cn";
 import type { PMSpaceData } from "@/lib/services/pm-service";
+import { EXPERIMENT_TYPE_COLOR } from "@/lib/types/experiment";
 
 type OrderSummary = {
   id: string;
   orderNumber: string;
   status: string;
   orderDate: string;
+};
+
+export type ExperimentSummary = {
+  id: string;
+  title: string;
+  type: string;
+  status: string;
+  startDate: string;
+  endDate: string;
 };
 
 type PMSidebarProps = {
@@ -19,8 +29,10 @@ type PMSidebarProps = {
    *  When set AND selectedListId is null, the app renders a space-wide view. */
   selectedSpaceId?: string | null;
   ordersBySpace: Record<string, OrderSummary[]>;
+  experimentsBySpace?: Record<string, ExperimentSummary[]>;
   onSelectList: (listId: string) => void;
   onSelectOrder: (orderId: string, spaceId: string) => void;
+  onSelectExperiment?: (experimentId: string) => void;
   onCreateSpace: (name: string) => void;
   onCreateList: (name: string, spaceId: string) => void;
   onCreateOrder: (spaceId: string) => void;
@@ -37,8 +49,10 @@ export function PMSidebar({
   selectedOrderId,
   selectedSpaceId,
   ordersBySpace,
+  experimentsBySpace,
   onSelectList,
   onSelectOrder,
+  onSelectExperiment,
   onCreateSpace,
   onCreateList,
   onCreateOrder,
@@ -361,6 +375,38 @@ export function PMSidebar({
                               : order.orderNumber}
                           </span>
                           <StatusDot status={order.status} />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Experiments under space */}
+                  {(experimentsBySpace?.[space.id] ?? []).length > 0 && (
+                    <div className="mt-1 mb-1">
+                      <div className="px-4 py-1 text-2xs font-medium text-muted-foreground uppercase tracking-wider">
+                        Experiments
+                        <span className="ml-1 text-tertiary tabular-nums">
+                          {(experimentsBySpace?.[space.id] ?? []).length}
+                        </span>
+                      </div>
+                      {(experimentsBySpace?.[space.id] ?? []).map((exp) => (
+                        <button
+                          key={exp.id}
+                          type="button"
+                          onClick={() => onSelectExperiment?.(exp.id)}
+                          className="flex items-center gap-2 w-full px-4 py-1.5 text-left transition rounded-r-md text-muted-foreground hover:text-foreground hover:bg-elevated/50"
+                          title={`${exp.type} · ${exp.startDate} → ${exp.endDate}`}
+                        >
+                          <span
+                            className={cn(
+                              "h-2 w-2 rounded-full flex-shrink-0",
+                              EXPERIMENT_TYPE_COLOR[exp.type] ?? "bg-gray-500"
+                            )}
+                          />
+                          <span className="text-xs truncate flex-1">
+                            {exp.title.length > 20 ? exp.title.slice(0, 20) + "..." : exp.title}
+                          </span>
+                          <span className="text-2xs text-tertiary">{exp.status}</span>
                         </button>
                       ))}
                     </div>
