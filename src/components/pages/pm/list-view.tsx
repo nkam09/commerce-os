@@ -4,11 +4,15 @@ import { useState, useMemo, useCallback } from "react";
 import { cn } from "@/lib/utils/cn";
 import { formatDate } from "@/lib/utils/formatters";
 import type { PMTaskData } from "@/lib/services/pm-service";
+import type { ExperimentData } from "@/lib/types/experiment";
+import { ExperimentStrip } from "./experiment-strip";
 
 type ListViewProps = {
   tasks: PMTaskData[];
+  experiments?: ExperimentData[];
   onTaskClick: (task: PMTaskData) => void;
   onStatusChange: (taskId: string, newStatus: string) => void;
+  onExperimentClick?: (exp: ExperimentData) => void;
 };
 
 type SortKey = "title" | "status" | "priority" | "dueDate" | "createdAt";
@@ -74,7 +78,7 @@ function SortArrow({ active, dir }: { active: boolean; dir: SortDir }) {
   );
 }
 
-export function ListView({ tasks, onTaskClick, onStatusChange }: ListViewProps) {
+export function ListView({ tasks, experiments, onTaskClick, onStatusChange, onExperimentClick }: ListViewProps) {
   const [sortKey, setSortKey] = useState<SortKey>("createdAt");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [groupBy, setGroupBy] = useState<GroupBy>("none");
@@ -168,6 +172,10 @@ export function ListView({ tasks, onTaskClick, onStatusChange }: ListViewProps) 
   const tdClass = "px-3 py-2 text-xs whitespace-nowrap";
 
   return (
+    <div>
+      {experiments && experiments.length > 0 && (
+        <ExperimentStrip experiments={experiments} onExperimentClick={onExperimentClick} />
+      )}
     <div className="rounded-lg border border-border bg-card overflow-hidden">
       {/* Toolbar */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-border">
@@ -232,6 +240,7 @@ export function ListView({ tasks, onTaskClick, onStatusChange }: ListViewProps) 
           </tbody>
         </table>
       </div>
+    </div>
     </div>
   );
 }

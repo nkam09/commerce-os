@@ -3,10 +3,14 @@
 import { cn } from "@/lib/utils/cn";
 import type { SupplierOrderData } from "@/lib/types/supplier-order";
 import { calculateOrderTotals, formatOrderCurrency, toUSD, addDays, getWarehouseStats } from "@/lib/types/supplier-order";
+import type { ExperimentData } from "@/lib/types/experiment";
+import { ExperimentStrip } from "./experiment-strip";
 
 type OrderListViewProps = {
   orders: SupplierOrderData[];
+  experiments?: ExperimentData[];
   onOrderClick: (order: SupplierOrderData) => void;
+  onExperimentClick?: (exp: ExperimentData) => void;
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -20,16 +24,27 @@ const STATUS_COLORS: Record<string, string> = {
 const fmtUSD = (n: number) =>
   "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export function OrderListView({ orders, onOrderClick }: OrderListViewProps) {
+export function OrderListView({ orders, experiments, onOrderClick, onExperimentClick }: OrderListViewProps) {
+  const hasExperiments = !!experiments && experiments.length > 0;
+
   if (orders.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full min-h-[300px] text-center">
-        <p className="text-xs text-muted-foreground">No orders yet</p>
+      <div>
+        {hasExperiments && (
+          <ExperimentStrip experiments={experiments!} onExperimentClick={onExperimentClick} />
+        )}
+        <div className="flex flex-col items-center justify-center h-full min-h-[200px] text-center">
+          <p className="text-xs text-muted-foreground">No orders yet</p>
+        </div>
       </div>
     );
   }
 
   return (
+    <div>
+      {hasExperiments && (
+        <ExperimentStrip experiments={experiments!} onExperimentClick={onExperimentClick} />
+      )}
     <div className="overflow-x-auto rounded-lg border border-border">
       <table className="w-full text-xs">
         <thead>
@@ -112,6 +127,7 @@ export function OrderListView({ orders, onOrderClick }: OrderListViewProps) {
           })}
         </tbody>
       </table>
+    </div>
     </div>
   );
 }

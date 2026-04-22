@@ -981,12 +981,16 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
             ) : viewMode === "board" ? (
               <OrderBoardView
                 orders={ordersForSelectedSpace}
+                experiments={visibleExperiments}
                 onOrderClick={handleOrderClick}
+                onExperimentClick={handleExperimentClick}
               />
             ) : viewMode === "list" ? (
               <OrderListView
                 orders={ordersForSelectedSpace}
+                experiments={visibleExperiments}
                 onOrderClick={handleOrderClick}
+                onExperimentClick={handleExperimentClick}
               />
             ) : viewMode === "calendar" ? (
               <CalendarView
@@ -1005,15 +1009,27 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
               <TimelineView
                 tasks={[]}
                 orders={ordersForSelectedSpace}
+                experiments={visibleExperiments}
                 listNames={listNames}
                 onTaskClick={handleTaskClick}
                 onTaskUpdate={handleTaskUpdate}
                 onOrderClick={handleOrderClick}
+                onExperimentClick={handleExperimentClick}
               />
+            ) : viewMode === "experiments" ? (
+              <div className="p-4">
+                <ExperimentListView spaceId={effectiveSpaceId} />
+              </div>
+            ) : viewMode === "recurring" ? (
+              <div className="p-4">
+                <RecurringTaskListView spaces={localSpaces} />
+              </div>
             ) : (
               <OrderBoardView
                 orders={ordersForSelectedSpace}
+                experiments={visibleExperiments}
                 onOrderClick={handleOrderClick}
+                onExperimentClick={handleExperimentClick}
               />
             )
           ) : !selectedListId && ordersForCurrentList.length === 0 ? (
@@ -1041,14 +1057,18 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
             <BoardView
               tasks={tasksForList}
               statuses={statuses}
+              experiments={visibleExperiments}
               onTaskClick={handleTaskClick}
               onStatusChange={handleStatusChange}
+              onExperimentClick={handleExperimentClick}
             />
           ) : viewMode === "list" ? (
             <ListView
               tasks={tasksForList}
+              experiments={visibleExperiments}
               onTaskClick={handleTaskClick}
               onStatusChange={handleStatusChange}
+              onExperimentClick={handleExperimentClick}
             />
           ) : viewMode === "calendar" ? (
             <CalendarView
@@ -1074,10 +1094,12 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
             <TimelineView
               tasks={tasksForList}
               orders={ordersForSelectedSpace}
+              experiments={visibleExperiments}
               listNames={listNames}
               onTaskClick={handleTaskClick}
               onTaskUpdate={handleTaskUpdate}
               onOrderClick={handleOrderClick}
+              onExperimentClick={handleExperimentClick}
             />
           )}
         </div>

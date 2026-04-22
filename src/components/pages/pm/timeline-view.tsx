@@ -11,6 +11,8 @@ import {
 import type { PMTaskData } from "@/lib/services/pm-service";
 import type { SupplierOrderData, SupplierOrderItem } from "@/lib/types/supplier-order";
 import { addDays as addDaysStr } from "@/lib/types/supplier-order";
+import type { ExperimentData } from "@/lib/types/experiment";
+import { ExperimentStrip } from "./experiment-strip";
 import { cn } from "@/lib/utils/cn";
 import { formatDate } from "@/lib/utils/formatters";
 
@@ -19,10 +21,12 @@ import { formatDate } from "@/lib/utils/formatters";
 type TimelineViewProps = {
   tasks: PMTaskData[];
   orders?: SupplierOrderData[];
+  experiments?: ExperimentData[];
   listNames: Record<string, string>;
   onTaskClick: (task: PMTaskData) => void;
   onTaskUpdate: (taskId: string, updates: Partial<PMTaskData>) => void;
   onOrderClick?: (order: SupplierOrderData) => void;
+  onExperimentClick?: (exp: ExperimentData) => void;
 };
 
 type DragState = {
@@ -100,10 +104,12 @@ function parseDate(s: string): Date {
 export function TimelineView({
   tasks,
   orders,
+  experiments,
   listNames,
   onTaskClick,
   onTaskUpdate,
   onOrderClick,
+  onExperimentClick,
 }: TimelineViewProps) {
   // ── State ────────────────────────────────────────────────────────────────
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
@@ -424,7 +430,13 @@ export function TimelineView({
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-lg border border-border bg-card">
+    <div className="flex h-full flex-col">
+      {experiments && experiments.length > 0 && (
+        <div className="px-4 pt-3">
+          <ExperimentStrip experiments={experiments} onExperimentClick={onExperimentClick} />
+        </div>
+      )}
+    <div className="flex flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-2">
         <h3 className="text-sm font-semibold text-foreground">Timeline</h3>
@@ -1001,6 +1013,7 @@ export function TimelineView({
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }

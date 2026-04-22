@@ -3,12 +3,16 @@
 import { useState, useCallback, useMemo } from "react";
 import { cn } from "@/lib/utils/cn";
 import type { PMTaskData } from "@/lib/services/pm-service";
+import type { ExperimentData } from "@/lib/types/experiment";
+import { ExperimentStrip } from "./experiment-strip";
 
 type BoardViewProps = {
   tasks: PMTaskData[];
   statuses: string[];
+  experiments?: ExperimentData[];
   onTaskClick: (task: PMTaskData) => void;
   onStatusChange: (taskId: string, newStatus: string) => void;
+  onExperimentClick?: (exp: ExperimentData) => void;
 };
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -143,7 +147,7 @@ function TaskCard({
   );
 }
 
-export function BoardView({ tasks, statuses, onTaskClick, onStatusChange }: BoardViewProps) {
+export function BoardView({ tasks, statuses, experiments, onTaskClick, onStatusChange, onExperimentClick }: BoardViewProps) {
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
 
   const tasksByStatus = useMemo(() => {
@@ -191,8 +195,12 @@ export function BoardView({ tasks, statuses, onTaskClick, onStatusChange }: Boar
   }, []);
 
   return (
-    <div className="flex gap-3 overflow-x-auto pb-4 pr-4 h-full snap-x snap-mandatory md:snap-none">
-      {statuses.map((status) => {
+    <div className="flex flex-col h-full">
+      {experiments && experiments.length > 0 && (
+        <ExperimentStrip experiments={experiments} onExperimentClick={onExperimentClick} />
+      )}
+      <div className="flex gap-3 overflow-x-auto pb-4 pr-4 flex-1 snap-x snap-mandatory md:snap-none">
+        {statuses.map((status) => {
         const columnTasks = tasksByStatus[status] ?? [];
         return (
           <div
@@ -239,6 +247,7 @@ export function BoardView({ tasks, statuses, onTaskClick, onStatusChange }: Boar
           </div>
         );
       })}
+      </div>
     </div>
   );
 }

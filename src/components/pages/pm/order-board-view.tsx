@@ -4,10 +4,14 @@ import { useMemo } from "react";
 import { cn } from "@/lib/utils/cn";
 import type { SupplierOrderData } from "@/lib/types/supplier-order";
 import { calculateOrderTotals, formatOrderCurrency, toUSD, getWarehouseStats } from "@/lib/types/supplier-order";
+import type { ExperimentData } from "@/lib/types/experiment";
+import { ExperimentStrip } from "./experiment-strip";
 
 type OrderBoardViewProps = {
   orders: SupplierOrderData[];
+  experiments?: ExperimentData[];
   onOrderClick: (order: SupplierOrderData) => void;
+  onExperimentClick?: (exp: ExperimentData) => void;
 };
 
 const COLUMNS = ["Pending", "In Production", "Shipped", "Delivered"] as const;
@@ -22,7 +26,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 const fmtUSD = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export function OrderBoardView({ orders, onOrderClick }: OrderBoardViewProps) {
+export function OrderBoardView({ orders, experiments, onOrderClick, onExperimentClick }: OrderBoardViewProps) {
   const grouped = useMemo(() => {
     const map: Record<string, SupplierOrderData[]> = {};
     for (const col of COLUMNS) map[col] = [];
@@ -36,6 +40,10 @@ export function OrderBoardView({ orders, onOrderClick }: OrderBoardViewProps) {
   }, [orders]);
 
   return (
+    <div>
+      {experiments && experiments.length > 0 && (
+        <ExperimentStrip experiments={experiments} onExperimentClick={onExperimentClick} />
+      )}
     <div className="flex gap-4 overflow-x-auto pb-4 pr-4 snap-x snap-mandatory md:snap-none">
       {COLUMNS.map((col) => (
         <div
@@ -121,6 +129,7 @@ export function OrderBoardView({ orders, onOrderClick }: OrderBoardViewProps) {
           </div>
         </div>
       ))}
+    </div>
     </div>
   );
 }
