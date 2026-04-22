@@ -21,8 +21,12 @@ import type {
   PMListData,
 } from "@/lib/services/pm-service";
 import type { SupplierOrderData } from "@/lib/types/supplier-order";
+import type { ExperimentData } from "@/lib/types/experiment";
+import { ExperimentListView } from "./experiment-list-view";
+import { ExperimentForm } from "./experiment-form";
+import { RecurringTaskListView } from "./recurring-task-list-view";
 
-type ViewMode = "board" | "list" | "calendar" | "timeline";
+type ViewMode = "board" | "list" | "calendar" | "timeline" | "experiments" | "recurring";
 
 type ProjectManagerPageProps = {
   initialData?: PMPageData;
@@ -107,6 +111,11 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
   const [showOrderForm, setShowOrderForm] = useState<string | null>(null); // spaceId
   const [ordersInitialized, setOrdersInitialized] = useState(false);
 
+  // ── Experiment state ─────────────────────────────────────────────────────
+  const [experiments, setExperiments] = useState<ExperimentData[]>([]);
+  const [editingExperiment, setEditingExperiment] = useState<ExperimentData | null>(null);
+  const [showExperimentForm, setShowExperimentForm] = useState(false);
+
   const handleSelectList = useCallback((listId: string) => {
     setSelectedListId(listId);
     // Auto-close mobile sidebar after selection
@@ -140,7 +149,35 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
         })
         .catch(() => {});
     }
+    // Fetch all experiments (not per-space — they show on the calendar)
+    fetch("/api/pm/experiments")
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.ok) setExperiments(json.data as ExperimentData[]);
+      })
+      .catch(() => {});
   }
+
+  const handleExperimentSaved = useCallback((exp: ExperimentData) => {
+    setExperiments((prev) => {
+      const idx = prev.findIndex((e) => e.id === exp.id);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = exp;
+        return copy;
+      }
+      return [exp, ...prev];
+    });
+  }, []);
+
+  const handleExperimentDeleted = useCallback((id: string) => {
+    setExperiments((prev) => prev.filter((e) => e.id !== id));
+  }, []);
+
+  const handleExperimentClick = useCallback((exp: ExperimentData) => {
+    setEditingExperiment(exp);
+    setShowExperimentForm(true);
+  }, []);
 
   // Selected order
   const selectedOrder = useMemo<SupplierOrderData | null>(() => {
@@ -677,6 +714,30 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
               >
                 Timeline
               </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("experiments")}
+                className={cn(
+                  "rounded px-2.5 py-1 text-2xs font-medium transition",
+                  viewMode === "experiments"
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                Experiments
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("recurring")}
+                className={cn(
+                  "rounded px-2.5 py-1 text-2xs font-medium transition",
+                  viewMode === "recurring"
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                Recurring
+              </button>
             </div>
 
             {/* Filter button */}
@@ -773,9 +834,11 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
               <CalendarView
                 tasks={[]}
                 orders={ordersForSelectedSpace}
+                experiments={experiments}
                 onTaskClick={handleTaskClick}
                 onTaskUpdate={handleTaskUpdate}
                 onOrderClick={handleOrderClick}
+                onExperimentClick={handleExperimentClick}
               />
             ) : viewMode === "timeline" ? (
               <TimelineView
@@ -830,10 +893,20 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
             <CalendarView
               tasks={tasksForList}
               orders={ordersForSelectedSpace}
+              experiments={experiments}
               onTaskClick={handleTaskClick}
               onTaskUpdate={handleTaskUpdate}
               onOrderClick={handleOrderClick}
+              onExperimentClick={handleExperimentClick}
             />
+          ) : viewMode === "experiments" ? (
+            <div className="p-4">
+              <ExperimentListView spaceId={selectedOrderSpaceId ?? null} />
+            </div>
+          ) : viewMode === "recurring" ? (
+            <div className="p-4">
+              <RecurringTaskListView spaces={localSpaces} />
+            </div>
           ) : (
             <TimelineView
               tasks={tasksForList}
@@ -871,6 +944,19 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
           spaceId={showOrderForm}
           onClose={() => setShowOrderForm(null)}
           onCreated={handleOrderCreated}
+        />
+      )}
+
+      {/* Experiment Form (opens from calendar bar click) */}
+      {showExperimentForm && (
+        <ExperimentForm
+          experiment={editingExperiment ?? undefined}
+          onClose={() => {
+            setShowExperimentForm(false);
+            setEditingExperiment(null);
+          }}
+          onSaved={handleExperimentSaved}
+          onDeleted={handleExperimentDeleted}
         />
       )}
     </div>

@@ -5,15 +5,19 @@ import { cn } from "@/lib/utils/cn";
 import type { PMTaskData } from "@/lib/services/pm-service";
 import type { SupplierOrderData } from "@/lib/types/supplier-order";
 import { addDays } from "@/lib/types/supplier-order";
+import type { ExperimentData } from "@/lib/types/experiment";
+import { EXPERIMENT_TYPE_COLOR } from "@/lib/types/experiment";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 type CalendarViewProps = {
   tasks: PMTaskData[];
   orders?: SupplierOrderData[];
+  experiments?: ExperimentData[];
   onTaskClick: (task: PMTaskData) => void;
   onTaskUpdate: (taskId: string, updates: Partial<PMTaskData>) => void;
   onOrderClick?: (order: SupplierOrderData) => void;
+  onExperimentClick?: (experiment: ExperimentData) => void;
 };
 
 type CalendarEvent = {
@@ -36,7 +40,12 @@ type CalendarDay = {
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const TODAY = new Date("2026-03-21T00:00:00");
+/** Returns midnight-local today. Computed fresh at each call so the calendar
+ *  stays correct if the tab is left open across midnight. */
+function getToday(): Date {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -139,7 +148,7 @@ function buildMonthGrid(year: number, month: number): CalendarDay[] {
     days.push({
       date,
       isCurrentMonth: date.getMonth() === month && date.getFullYear() === year,
-      isToday: isSameDay(date, TODAY),
+      isToday: isSameDay(date, getToday()),
       dateKey: toDateKey(date),
     });
   }
@@ -155,7 +164,7 @@ function buildWeekGrid(weekStart: Date): CalendarDay[] {
     days.push({
       date,
       isCurrentMonth: true,
-      isToday: isSameDay(date, TODAY),
+      isToday: isSameDay(date, getToday()),
       dateKey: toDateKey(date),
     });
   }
@@ -331,13 +340,16 @@ function DayDetailPopover({
 export function CalendarView({
   tasks,
   orders,
+  experiments,
   onTaskClick,
   onTaskUpdate,
   onOrderClick,
+  onExperimentClick,
 }: CalendarViewProps) {
-  const [currentDate, setCurrentDate] = useState<Date>(
-    new Date(TODAY.getFullYear(), TODAY.getMonth(), 1),
-  );
+  const [currentDate, setCurrentDate] = useState<Date>(() => {
+    const today = getToday();
+    return new Date(today.getFullYear(), today.getMonth(), 1);
+  });
   const [viewType, setViewType] = useState<ViewType>("month");
   const [colorBy, setColorBy] = useState<ColorBy>("priority");
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
@@ -431,6 +443,29 @@ export function CalendarView({
     return map;
   }, [orders]);
 
+  // ── Experiments active on each day ───────────────────────────────────
+  // Each experiment spans startDate→endDate; we add a reference to each
+  // day the experiment covers so we can render a bar in every cell.
+  const experimentsByDate = useMemo(() => {
+    const map = new Map<string, ExperimentData[]>();
+    if (!experiments) return map;
+    for (const exp of experiments) {
+      if (exp.status === "Cancelled") continue;
+      const start = new Date(exp.startDate + "T00:00:00");
+      const end = new Date(exp.endDate + "T00:00:00");
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) continue;
+      const cursor = new Date(start);
+      while (cursor <= end) {
+        const key = toDateKey(cursor);
+        const arr = map.get(key) ?? [];
+        arr.push(exp);
+        map.set(key, arr);
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    }
+    return map;
+  }, [experiments]);
+
   // ── Calendar grid ─────────────────────────────────────────────────────
   const calendarDays = useMemo(() => {
     if (viewType === "month") {
@@ -442,10 +477,11 @@ export function CalendarView({
 
   // ── Navigation ────────────────────────────────────────────────────────
   const goToday = useCallback(() => {
+    const today = getToday();
     setCurrentDate(
       viewType === "month"
-        ? new Date(TODAY.getFullYear(), TODAY.getMonth(), 1)
-        : startOfWeek(TODAY),
+        ? new Date(today.getFullYear(), today.getMonth(), 1)
+        : startOfWeek(today),
     );
   }, [viewType]);
 
@@ -620,7 +656,8 @@ export function CalendarView({
         {calendarDays.map((day) => {
           const dayTasks = tasksByDate.get(day.dateKey) ?? [];
           const dayOrderEvents = orderEventsByDate.get(day.dateKey) ?? [];
-          const totalItems = dayTasks.length + dayOrderEvents.length;
+          const dayExperiments = experimentsByDate.get(day.dateKey) ?? [];
+          const totalItems = dayTasks.length + dayOrderEvents.length + dayExperiments.length;
           const visibleTasks = dayTasks.slice(0, maxVisibleTasks);
           const remainingSlots = Math.max(0, maxVisibleTasks - visibleTasks.length);
           const visibleOrderEvents = dayOrderEvents.slice(0, remainingSlots);
@@ -662,6 +699,46 @@ export function CalendarView({
                   </span>
                 )}
               </div>
+
+              {/* Experiment bars — spans startDate..endDate across cells.
+                  Up to 3 shown; remainder falls into +N more popover. */}
+              {dayExperiments.length > 0 && (
+                <div className="space-y-0.5 mb-1">
+                  {dayExperiments.slice(0, 3).map((exp) => {
+                    const isStart = exp.startDate === day.dateKey;
+                    const isEnd = exp.endDate === day.dateKey;
+                    return (
+                      <div
+                        key={exp.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onExperimentClick?.(exp);
+                        }}
+                        title={`${exp.type}: ${exp.title}`}
+                        className={cn(
+                          "h-3 flex items-center px-1 cursor-pointer hover:opacity-80 transition-opacity",
+                          EXPERIMENT_TYPE_COLOR[exp.type] ?? "bg-gray-500",
+                          isStart && "rounded-l-sm",
+                          isEnd && "rounded-r-sm",
+                          !isStart && "-ml-1.5",
+                          !isEnd && "-mr-1.5"
+                        )}
+                      >
+                        {isStart && (
+                          <span className="text-[9px] font-medium text-white truncate leading-none">
+                            {exp.title}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {dayExperiments.length > 3 && (
+                    <div className="text-[9px] text-muted-foreground px-1">
+                      +{dayExperiments.length - 3} more exp.
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Task pills */}
               <div className="space-y-0.5">

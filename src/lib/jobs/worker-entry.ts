@@ -38,6 +38,8 @@ import { syncAdsKeywordsJob } from "@/lib/jobs/sync-ads-keywords-job";
 import { syncRefundEventsJob } from "@/lib/jobs/sync-refund-events-job";
 import { syncSettlementRefundsJob } from "@/lib/jobs/sync-settlement-refunds-job";
 import { runRecompute, refreshSyncHealth } from "@/lib/services/recompute-orchestration-service";
+import { runRecurringTasks } from "@/lib/services/recurring-task-service";
+import { syncToGoogleCalendar } from "@/lib/services/google-calendar-sync-service";
 
 const INTERVAL_MS = parseInt(process.env.WORKER_INTERVAL_MS ?? "3600000", 10); // default 1 hour
 
@@ -85,6 +87,27 @@ async function runAllJobs(): Promise<void> {
     await refreshSyncHealth(userId);
   } catch (err) {
     console.error("[worker] sync health refresh failed:", err);
+  }
+
+  // Fan out PM extensions — non-critical, failures shouldn't affect core syncs.
+  try {
+    const result = await runRecurringTasks(userId);
+    if (result.created > 0) {
+      console.log(`[worker] recurring-tasks created ${result.created} tasks`);
+    }
+  } catch (err) {
+    console.error("[worker] recurring-tasks failed:", err);
+  }
+
+  try {
+    const result = await syncToGoogleCalendar(userId);
+    if (result.created > 0 || result.updated > 0 || result.deleted > 0) {
+      console.log(
+        `[worker] google-calendar-sync: +${result.created} ~${result.updated} -${result.deleted}`
+      );
+    }
+  } catch (err) {
+    console.error("[worker] google-calendar-sync failed:", err);
   }
 }
 
