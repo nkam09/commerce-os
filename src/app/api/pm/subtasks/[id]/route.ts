@@ -10,9 +10,11 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     const { userId } = await requireUser();
     const { id } = await context.params;
     const body = await request.json();
-    const { title, completed } = body as {
+    const { title, completed, description, dueDate } = body as {
       title?: string;
       completed?: boolean;
+      description?: string | null;
+      dueDate?: string | null;
     };
 
     // Verify the subtask belongs to the user
@@ -26,6 +28,8 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     const data: Record<string, unknown> = {};
     if (title !== undefined) data.title = title;
     if (completed !== undefined) data.completed = completed;
+    if (description !== undefined) data.description = description;
+    if (dueDate !== undefined) data.dueDate = dueDate ? new Date(dueDate) : null;
 
     const updated = await prisma.pMSubtask.update({
       where: { id },
@@ -35,6 +39,8 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     return apiSuccess({
       id: updated.id,
       title: updated.title,
+      description: updated.description,
+      dueDate: updated.dueDate ? updated.dueDate.toISOString().slice(0, 10) : null,
       completed: updated.completed,
       order: updated.order,
     });

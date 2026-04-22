@@ -5,7 +5,9 @@ import {
   EXPERIMENT_STATUSES,
   EXPERIMENT_TYPES,
   type ExperimentData,
+  type ExperimentSubtaskData,
 } from "@/lib/types/experiment";
+import { SubtaskList, type SubtaskCreatePayload, type SubtaskData } from "./subtask-list";
 
 type Props = {
   /** If editing, pass the existing experiment; otherwise leave undefined for create. */
@@ -40,6 +42,9 @@ export function ExperimentForm({
   const [expectedImpact, setExpectedImpact] = useState(experiment?.expectedImpact ?? "");
   const [actualImpact, setActualImpact] = useState(experiment?.actualImpact ?? "");
   const [notes, setNotes] = useState(experiment?.notes ?? "");
+  const [subtasks, setSubtasks] = useState<ExperimentSubtaskData[]>(
+    experiment?.subtasks ?? []
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -96,6 +101,55 @@ export function ExperimentForm({
       setSaving(false);
     }
   }, [title, type, asin, startDate, endDate, status, description, expectedImpact, actualImpact, notes, isEditing, experiment, spaceId, onSaved, onClose]);
+
+  // ── Subtask handlers (edit mode only — subtasks need an experimentId) ──
+  const handleSubtaskAdd = useCallback(
+    async (payload: SubtaskCreatePayload) => {
+      if (!experiment) return;
+      try {
+        const res = await fetch("/api/pm/experiments/subtasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ experimentId: experiment.id, ...payload }),
+        });
+        const json = await res.json();
+        if (json.ok) {
+          setSubtasks((prev) => [...prev, json.data as ExperimentSubtaskData]);
+        }
+      } catch (err) {
+        console.error("Add experiment subtask failed:", err);
+      }
+    },
+    [experiment]
+  );
+  const handleSubtaskUpdate = useCallback(
+    async (id: string, patch: Partial<SubtaskData>) => {
+      setSubtasks((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+      fetch(`/api/pm/experiments/subtasks/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      }).catch(console.error);
+    },
+    []
+  );
+  const handleSubtaskDelete = useCallback(async (id: string) => {
+    setSubtasks((prev) => prev.filter((s) => s.id !== id));
+    fetch(`/api/pm/experiments/subtasks/${id}`, { method: "DELETE" }).catch(console.error);
+  }, []);
+  const handleSubtaskToggle = useCallback(async (id: string) => {
+    setSubtasks((prev) => {
+      const target = prev.find((s) => s.id === id);
+      if (!target) return prev;
+      const nextCompleted = !target.completed;
+      fetch(`/api/pm/experiments/subtasks/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ completed: nextCompleted }),
+      }).catch(console.error);
+      return prev.map((s) => (s.id === id ? { ...s, completed: nextCompleted } : s));
+    });
+  }, []);
 
   const handleDelete = useCallback(async () => {
     if (!isEditing || !experiment) return;
@@ -185,6 +239,23 @@ export function ExperimentForm({
               placeholder={canEditActual ? "Observed outcome" : "Set status to Completed to edit"}
             />
           </Field>
+
+          <div>
+            <label className="block text-2xs font-medium text-muted-foreground mb-2">Subtasks</label>
+            {isEditing ? (
+              <SubtaskList
+                subtasks={subtasks}
+                onAdd={handleSubtaskAdd}
+                onUpdate={handleSubtaskUpdate}
+                onDelete={handleSubtaskDelete}
+                onToggle={handleSubtaskToggle}
+              />
+            ) : (
+              <p className="rounded-md border border-dashed border-border p-3 text-2xs text-muted-foreground italic">
+                Save the experiment first to add subtasks.
+              </p>
+            )}
+          </div>
 
           <Field label="Notes">
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="input-field resize-none" />

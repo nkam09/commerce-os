@@ -6,6 +6,10 @@ import type { Prisma } from "@prisma/client";
 type Params = { params: Promise<{ id: string }> };
 
 function serialize(e: Prisma.ExperimentGetPayload<Record<string, never>>) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const subtasks = (e as any).subtasks as
+    | { id: string; title: string; description: string | null; dueDate: Date | null; completed: boolean; order: number }[]
+    | undefined;
   return {
     id: e.id,
     userId: e.userId,
@@ -20,6 +24,14 @@ function serialize(e: Prisma.ExperimentGetPayload<Record<string, never>>) {
     expectedImpact: e.expectedImpact,
     actualImpact: e.actualImpact,
     notes: e.notes,
+    subtasks: (subtasks ?? []).map((s) => ({
+      id: s.id,
+      title: s.title,
+      description: s.description,
+      dueDate: s.dueDate ? s.dueDate.toISOString().slice(0, 10) : null,
+      completed: s.completed,
+      order: s.order,
+    })),
     createdAt: e.createdAt.toISOString(),
     updatedAt: e.updatedAt.toISOString(),
   };
@@ -35,7 +47,10 @@ export async function GET(_req: Request, ctx: Params) {
       return apiUnauthorized();
     }
     const { id } = await ctx.params;
-    const exp = await prisma.experiment.findFirst({ where: { id, userId } });
+    const exp = await prisma.experiment.findFirst({
+      where: { id, userId },
+      include: { subtasks: { orderBy: { order: "asc" } } },
+    });
     if (!exp) return apiNotFound("Experiment");
     return apiSuccess(serialize(exp));
   } catch (err) {
@@ -84,7 +99,12 @@ export async function PUT(req: Request, ctx: Params) {
     if (actualImpact !== undefined) data.actualImpact = (actualImpact as string | null) ?? null;
     if (notes !== undefined) data.notes = (notes as string | null) ?? null;
 
-    const updated = await prisma.experiment.update({ where: { id }, data });
+    await prisma.experiment.update({ where: { id }, data });
+    const updated = await prisma.experiment.findUnique({
+      where: { id },
+      include: { subtasks: { orderBy: { order: "asc" } } },
+    });
+    if (!updated) return apiNotFound("Experiment");
     return apiSuccess(serialize(updated));
   } catch (err) {
     return apiServerError(err);

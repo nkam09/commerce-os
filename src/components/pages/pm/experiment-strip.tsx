@@ -12,6 +12,7 @@
  */
 import { cn } from "@/lib/utils/cn";
 import { EXPERIMENT_TYPE_COLOR, type ExperimentData } from "@/lib/types/experiment";
+import { SubtaskProgressChip } from "./subtask-list";
 
 type Props = {
   experiments: ExperimentData[];
@@ -77,9 +78,12 @@ export function ExperimentStrip({
               </span>
             </div>
             <p className="text-xs font-medium text-foreground truncate">{exp.title}</p>
-            <p className="text-2xs text-muted-foreground mt-1 tabular-nums">
-              {formatShort(exp.startDate)} → {formatShort(exp.endDate)}
-            </p>
+            <div className="flex items-center gap-2 mt-1">
+              <p className="text-2xs text-muted-foreground tabular-nums">
+                {formatShort(exp.startDate)} → {formatShort(exp.endDate)}
+              </p>
+              <SubtaskProgressChip subtasks={exp.subtasks ?? []} />
+            </div>
           </button>
         ))}
       </div>

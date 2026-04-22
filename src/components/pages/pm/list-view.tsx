@@ -6,6 +6,7 @@ import { formatDate } from "@/lib/utils/formatters";
 import type { PMTaskData } from "@/lib/services/pm-service";
 import type { ExperimentData } from "@/lib/types/experiment";
 import { ExperimentStrip } from "./experiment-strip";
+import { SubtaskProgressChip } from "./subtask-list";
 
 type ListViewProps = {
   tasks: PMTaskData[];
@@ -285,16 +286,19 @@ function GroupRows({
 
           {/* Title */}
           <td className={cn(tdClass, "max-w-[300px]")}>
-            <button
-              type="button"
-              onClick={() => onTaskClick(task)}
-              className={cn(
-                "text-foreground font-medium hover:text-primary transition truncate text-left",
-                task.status === "Done" && "line-through text-muted-foreground"
-              )}
-            >
-              {task.title}
-            </button>
+            <div className="flex items-center gap-2 min-w-0">
+              <button
+                type="button"
+                onClick={() => onTaskClick(task)}
+                className={cn(
+                  "text-foreground font-medium hover:text-primary transition truncate text-left",
+                  task.status === "Done" && "line-through text-muted-foreground"
+                )}
+              >
+                {task.title}
+              </button>
+              {task.subtasks.length > 0 && <SubtaskProgressChip subtasks={task.subtasks} />}
+            </div>
           </td>
 
           {/* Status */}

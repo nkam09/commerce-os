@@ -4,7 +4,15 @@ import { apiError, apiServerError, apiSuccess, apiUnauthorized } from "@/lib/uti
 import { prisma } from "@/lib/db/prisma";
 import type { Prisma } from "@prisma/client";
 
-function serialize(e: Prisma.ExperimentGetPayload<Record<string, never>>) {
+type ExperimentWithSubtasks = Prisma.ExperimentGetPayload<{
+  include: { subtasks: true };
+}>;
+
+function serialize(e: ExperimentWithSubtasks | Prisma.ExperimentGetPayload<Record<string, never>>) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const subtasks = (e as any).subtasks as
+    | { id: string; title: string; description: string | null; dueDate: Date | null; completed: boolean; order: number }[]
+    | undefined;
   return {
     id: e.id,
     userId: e.userId,
@@ -19,6 +27,14 @@ function serialize(e: Prisma.ExperimentGetPayload<Record<string, never>>) {
     expectedImpact: e.expectedImpact,
     actualImpact: e.actualImpact,
     notes: e.notes,
+    subtasks: (subtasks ?? []).map((s) => ({
+      id: s.id,
+      title: s.title,
+      description: s.description,
+      dueDate: s.dueDate ? s.dueDate.toISOString().slice(0, 10) : null,
+      completed: s.completed,
+      order: s.order,
+    })),
     createdAt: e.createdAt.toISOString(),
     updatedAt: e.updatedAt.toISOString(),
   };
@@ -47,6 +63,7 @@ export async function GET(req: NextRequest) {
     const experiments = await prisma.experiment.findMany({
       where,
       orderBy: { startDate: "desc" },
+      include: { subtasks: { orderBy: { order: "asc" } } },
     });
     return apiSuccess(experiments.map(serialize));
   } catch (err) {
@@ -110,6 +127,7 @@ export async function POST(req: NextRequest) {
         actualImpact: actualImpact ?? null,
         notes: notes ?? null,
       },
+      include: { subtasks: true },
     });
 
     return apiSuccess(serialize(experiment));

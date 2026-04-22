@@ -6,7 +6,12 @@ export async function POST(request: Request) {
   try {
     const { userId } = await requireUser();
     const body = await request.json();
-    const { title, taskId } = body as { title: string; taskId: string };
+    const { title, taskId, description, dueDate } = body as {
+      title: string;
+      taskId: string;
+      description?: string | null;
+      dueDate?: string | null;
+    };
 
     if (!title || !taskId) {
       return apiError("Missing title or taskId", 400);
@@ -30,6 +35,8 @@ export async function POST(request: Request) {
       data: {
         title,
         taskId,
+        description: description ?? null,
+        dueDate: dueDate ? new Date(dueDate) : null,
         order: (maxOrder._max.order ?? -1) + 1,
       },
     });
@@ -37,6 +44,8 @@ export async function POST(request: Request) {
     return apiSuccess({
       id: subtask.id,
       title: subtask.title,
+      description: subtask.description,
+      dueDate: subtask.dueDate ? subtask.dueDate.toISOString().slice(0, 10) : null,
       completed: subtask.completed,
       order: subtask.order,
     });

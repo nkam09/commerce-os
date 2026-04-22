@@ -26,7 +26,7 @@ import { ExperimentListView } from "./experiment-list-view";
 import { ExperimentForm } from "./experiment-form";
 import { RecurringTaskListView } from "./recurring-task-list-view";
 import { computeNextRunDate, type RecurringTaskData } from "@/lib/types/recurring-task";
-import type { ProjectedTask } from "./calendar-view";
+import type { ProjectedTask, SubtaskDueDate } from "./calendar-view";
 
 type ViewMode = "board" | "list" | "calendar" | "timeline" | "experiments" | "recurring";
 
@@ -201,6 +201,23 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
     [experiments]
   );
 
+  /** Resolves a subtask-calendar-click to opening the parent task/experiment. */
+  const handleSubtaskClick = useCallback(
+    (sub: SubtaskDueDate) => {
+      if (sub.parentType === "task") {
+        const task = localTasks.find((t) => t.id === sub.parentId);
+        if (task) setSelectedTask(task);
+      } else {
+        const exp = experiments.find((e) => e.id === sub.parentId);
+        if (exp) {
+          setEditingExperiment(exp);
+          setShowExperimentForm(true);
+        }
+      }
+    },
+    [localTasks, experiments]
+  );
+
   // Selected order
   const selectedOrder = useMemo<SupplierOrderData | null>(() => {
     if (!selectedOrderId || !selectedOrderSpaceId) return null;
@@ -353,6 +370,38 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
     }
     return projected;
   }, [recurringTasks, effectiveSpaceId, selectedListId, localSpaces]);
+
+  /** Flatten all subtasks with due dates from visible tasks + experiments. */
+  const visibleSubtaskDueDates = useMemo<SubtaskDueDate[]>(() => {
+    const items: SubtaskDueDate[] = [];
+    for (const task of visibleTasks) {
+      for (const sub of task.subtasks ?? []) {
+        if (!sub.dueDate) continue;
+        items.push({
+          id: sub.id,
+          parentId: task.id,
+          parentType: "task",
+          title: sub.title,
+          dueDate: sub.dueDate,
+          completed: sub.completed,
+        });
+      }
+    }
+    for (const exp of visibleExperiments) {
+      for (const sub of exp.subtasks ?? []) {
+        if (!sub.dueDate) continue;
+        items.push({
+          id: sub.id,
+          parentId: exp.id,
+          parentType: "experiment",
+          title: sub.title,
+          dueDate: sub.dueDate,
+          completed: sub.completed,
+        });
+      }
+    }
+    return items;
+  }, [visibleTasks, visibleExperiments]);
 
   /** Calendar header title showing current scope. */
   const calendarTitle = useMemo(() => {
@@ -998,12 +1047,14 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
                 orders={visibleOrders}
                 experiments={visibleExperiments}
                 projectedTasks={visibleProjectedRecurring}
+                subtaskDueDates={visibleSubtaskDueDates}
                 headerTitle={calendarTitle}
                 onTaskClick={handleTaskClick}
                 onTaskUpdate={handleTaskUpdate}
                 onOrderClick={handleOrderClick}
                 onExperimentClick={handleExperimentClick}
                 onProjectedTaskClick={() => setViewMode("recurring")}
+                onSubtaskClick={handleSubtaskClick}
               />
             ) : viewMode === "timeline" ? (
               <TimelineView
@@ -1076,11 +1127,13 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
               orders={visibleOrders}
               experiments={visibleExperiments}
               projectedTasks={visibleProjectedRecurring}
+              subtaskDueDates={visibleSubtaskDueDates}
               headerTitle={calendarTitle}
               onTaskClick={handleTaskClick}
               onTaskUpdate={handleTaskUpdate}
               onOrderClick={handleOrderClick}
               onExperimentClick={handleExperimentClick}
+              onSubtaskClick={handleSubtaskClick}
             />
           ) : viewMode === "experiments" ? (
             <div className="p-4">

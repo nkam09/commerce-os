@@ -45,6 +45,8 @@ export type PMTaskData = {
 export type PMSubtaskData = {
   id: string;
   title: string;
+  description: string | null;
+  dueDate: string | null;
   completed: boolean;
   order: number;
 };
@@ -104,7 +106,7 @@ function mapTask(t: {
   tags: unknown;
   order: number;
   listId: string;
-  subtasks: { id: string; title: string; completed: boolean; order: number }[];
+  subtasks: { id: string; title: string; description: string | null; dueDate: Date | null; completed: boolean; order: number }[];
   comments: { id: string; content: string; createdAt: Date }[];
   aiGenerated: boolean;
   aiSource: string | null;
@@ -127,6 +129,8 @@ function mapTask(t: {
     subtasks: t.subtasks.map((s) => ({
       id: s.id,
       title: s.title,
+      description: s.description,
+      dueDate: s.dueDate ? s.dueDate.toISOString().slice(0, 10) : null,
       completed: s.completed,
       order: s.order,
     })),
@@ -149,7 +153,7 @@ function mapTask(t: {
 const taskInclude = {
   subtasks: {
     orderBy: { order: "asc" as const },
-    select: { id: true, title: true, completed: true, order: true },
+    select: { id: true, title: true, description: true, dueDate: true, completed: true, order: true },
   },
   comments: {
     orderBy: { createdAt: "asc" as const },

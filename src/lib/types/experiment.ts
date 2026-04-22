@@ -30,6 +30,15 @@ export const EXPERIMENT_TYPE_COLOR: Record<string, string> = {
   Other: "bg-gray-500",
 };
 
+export type ExperimentSubtaskData = {
+  id: string;
+  title: string;
+  description: string | null;
+  dueDate: string | null;
+  completed: boolean;
+  order: number;
+};
+
 export type ExperimentData = {
   id: string;
   userId: string;
@@ -44,6 +53,42 @@ export type ExperimentData = {
   expectedImpact: string | null;
   actualImpact: string | null;
   notes: string | null;
+  subtasks: ExperimentSubtaskData[];
   createdAt: string;
   updatedAt: string;
 };
+
+/**
+ * Generic subtask progress computation, shared across task and experiment views.
+ * Both PMSubtask and ExperimentSubtask have the same `{ completed, dueDate }` shape
+ * so we can compute progress identically for either.
+ */
+export function getSubtaskProgress(
+  subtasks: { completed: boolean; dueDate: string | null }[]
+): {
+  total: number;
+  completed: number;
+  overdue: number;
+  percentComplete: number;
+  hasOverdue: boolean;
+  allComplete: boolean;
+} {
+  const total = subtasks.length;
+  const completed = subtasks.filter((s) => s.completed).length;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let overdue = 0;
+  for (const s of subtasks) {
+    if (s.completed || !s.dueDate) continue;
+    const d = new Date(s.dueDate);
+    if (!isNaN(d.getTime()) && d < today) overdue++;
+  }
+  return {
+    total,
+    completed,
+    overdue,
+    percentComplete: total > 0 ? Math.round((completed / total) * 100) : 0,
+    hasOverdue: overdue > 0,
+    allComplete: total > 0 && completed === total,
+  };
+}

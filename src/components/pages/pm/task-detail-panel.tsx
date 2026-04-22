@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils/cn";
 import { formatDate } from "@/lib/utils/formatters";
 import type { PMTaskData, PMSubtaskData } from "@/lib/services/pm-service";
+import { SubtaskList, type SubtaskCreatePayload, type SubtaskData } from "./subtask-list";
 
 type TaskDetailPanelProps = {
   task: PMTaskData | null;
@@ -31,7 +32,6 @@ export function TaskDetailPanel({ task, onClose, onUpdate, onDelete }: TaskDetai
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState("");
   const [descValue, setDescValue] = useState("");
-  const [newSubtask, setNewSubtask] = useState("");
   const [newComment, setNewComment] = useState("");
   const [newTag, setNewTag] = useState("");
   const [showTagInput, setShowTagInput] = useState(false);
@@ -48,7 +48,6 @@ export function TaskDetailPanel({ task, onClose, onUpdate, onDelete }: TaskDetai
       setEditingTitle(false);
       setConfirmDelete(false);
       setShowTagInput(false);
-      setNewSubtask("");
       setNewComment("");
       setNewTag("");
     } else {
@@ -111,27 +110,43 @@ export function TaskDetailPanel({ task, onClose, onUpdate, onDelete }: TaskDetai
     [task, updateField]
   );
 
-  const addSubtask = useCallback(async () => {
-    if (!task || !newSubtask.trim()) return;
-    const title = newSubtask.trim();
-    setNewSubtask("");
-    try {
-      const res = await fetch("/api/pm/subtasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, taskId: task.id }),
-      });
-      const json = await res.json();
-      if (json.ok) {
-        const sub: PMSubtaskData = json.data;
-        updateField({ subtasks: [...task.subtasks, sub] });
-      } else {
-        console.error("Failed to create subtask:", json.error);
+  // New SubtaskList callbacks — richer payloads (description + dueDate)
+  const handleSubtaskAdd = useCallback(
+    async (payload: SubtaskCreatePayload) => {
+      if (!task) return;
+      try {
+        const res = await fetch("/api/pm/subtasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ taskId: task.id, ...payload }),
+        });
+        const json = await res.json();
+        if (json.ok) {
+          const sub: PMSubtaskData = json.data;
+          updateField({ subtasks: [...task.subtasks, sub] });
+        }
+      } catch (err) {
+        console.error("Error creating subtask:", err);
       }
-    } catch (err) {
-      console.error("Error creating subtask:", err);
-    }
-  }, [task, newSubtask, updateField]);
+    },
+    [task, updateField]
+  );
+
+  const handleSubtaskUpdate = useCallback(
+    async (id: string, patch: Partial<SubtaskData>) => {
+      if (!task) return;
+      // Optimistic update
+      updateField({
+        subtasks: task.subtasks.map((s) => (s.id === id ? { ...s, ...patch } : s)),
+      });
+      fetch(`/api/pm/subtasks/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      }).catch(console.error);
+    },
+    [task, updateField]
+  );
 
   const addTag = useCallback(() => {
     if (!task || !newTag.trim()) return;
@@ -180,10 +195,6 @@ export function TaskDetailPanel({ task, onClose, onUpdate, onDelete }: TaskDetai
   }, [descValue]);
 
   if (!task && !isVisible) return null;
-
-  const completedCount = task?.subtasks.filter((s) => s.completed).length ?? 0;
-  const totalCount = task?.subtasks.length ?? 0;
-  const subtaskPct = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
 
   return (
     <>
@@ -417,62 +428,16 @@ export function TaskDetailPanel({ task, onClose, onUpdate, onDelete }: TaskDetai
 
               {/* Subtasks / Checklist */}
               <div>
-                <label className="text-2xs font-medium text-muted-foreground uppercase tracking-wider mb-1 block">
+                <label className="text-2xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">
                   Subtasks
                 </label>
-                {totalCount > 0 && (
-                  <div className="mb-2">
-                    <div className="flex items-center gap-2 mb-1">
-                      <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-primary transition-all"
-                          style={{ width: `${subtaskPct}%` }}
-                        />
-                      </div>
-                      <span className="text-2xs text-muted-foreground tabular-nums">
-                        {completedCount} of {totalCount} complete
-                      </span>
-                    </div>
-                  </div>
-                )}
-                <div className="space-y-1">
-                  {task.subtasks.map((sub) => (
-                    <div key={sub.id} className="group flex items-center gap-2 py-0.5">
-                      <input
-                        type="checkbox"
-                        checked={sub.completed}
-                        onChange={() => toggleSubtask(sub.id)}
-                        className="h-3.5 w-3.5 rounded border-border flex-shrink-0"
-                      />
-                      <span
-                        className={cn(
-                          "text-xs flex-1",
-                          sub.completed && "line-through text-muted-foreground"
-                        )}
-                      >
-                        {sub.title}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => deleteSubtask(sub.id)}
-                        className="rounded p-0.5 text-muted-foreground hover:text-red-400 opacity-0 group-hover:opacity-100 transition"
-                      >
-                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3">
-                          <path d="M4 4l8 8M12 4l-8 8" />
-                        </svg>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-2">
-                  <input
-                    value={newSubtask}
-                    onChange={(e) => setNewSubtask(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && addSubtask()}
-                    placeholder="Add subtask..."
-                    className="w-full rounded-md border border-border bg-elevated px-3 py-1.5 text-xs text-foreground outline-none placeholder:text-tertiary focus:ring-1 focus:ring-primary"
-                  />
-                </div>
+                <SubtaskList
+                  subtasks={task.subtasks}
+                  onAdd={handleSubtaskAdd}
+                  onUpdate={handleSubtaskUpdate}
+                  onDelete={deleteSubtask}
+                  onToggle={toggleSubtask}
+                />
               </div>
 
               {/* References */}

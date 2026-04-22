@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils/cn";
 import type { PMTaskData } from "@/lib/services/pm-service";
 import type { ExperimentData } from "@/lib/types/experiment";
 import { ExperimentStrip } from "./experiment-strip";
+import { SubtaskProgressChip } from "./subtask-list";
 
 type BoardViewProps = {
   tasks: PMTaskData[];
@@ -58,9 +59,7 @@ function TaskCard({
   task: PMTaskData;
   onClick: () => void;
 }) {
-  const completedSubtasks = task.subtasks.filter((s) => s.completed).length;
   const totalSubtasks = task.subtasks.length;
-  const subtaskPct = totalSubtasks > 0 ? (completedSubtasks / totalSubtasks) * 100 : 0;
   const visibleTags = task.tags.slice(0, 3);
   const overflowCount = task.tags.length - 3;
 
@@ -129,20 +128,8 @@ function TaskCard({
         </div>
       )}
 
-      {/* Subtask progress */}
-      {totalSubtasks > 0 && (
-        <div className="flex items-center gap-2">
-          <div className="flex-1 h-1 rounded-full bg-muted overflow-hidden">
-            <div
-              className="h-full rounded-full bg-primary transition-all"
-              style={{ width: `${subtaskPct}%` }}
-            />
-          </div>
-          <span className="text-2xs text-muted-foreground tabular-nums">
-            {completedSubtasks}/{totalSubtasks}
-          </span>
-        </div>
-      )}
+      {/* Subtask progress chip */}
+      {totalSubtasks > 0 && <SubtaskProgressChip subtasks={task.subtasks} />}
     </div>
   );
 }

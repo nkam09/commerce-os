@@ -26,11 +26,25 @@ export type ProjectedTask = {
   recurringTaskId: string;
 };
 
+/**
+ * A single subtask with a due date, projected onto the calendar.
+ * Clicking opens the parent task / experiment detail panel.
+ */
+export type SubtaskDueDate = {
+  id: string;
+  parentId: string;
+  parentType: "task" | "experiment";
+  title: string;
+  dueDate: string; // ISO date (YYYY-MM-DD) or full ISO
+  completed: boolean;
+};
+
 type CalendarViewProps = {
   tasks: PMTaskData[];
   orders?: SupplierOrderData[];
   experiments?: ExperimentData[];
   projectedTasks?: ProjectedTask[];
+  subtaskDueDates?: SubtaskDueDate[];
   /** Optional context line rendered above the calendar header. */
   headerTitle?: string | null;
   onTaskClick: (task: PMTaskData) => void;
@@ -39,6 +53,8 @@ type CalendarViewProps = {
   onExperimentClick?: (experiment: ExperimentData) => void;
   /** Clicking a projected task jumps to its recurring template. */
   onProjectedTaskClick?: (recurringTaskId: string) => void;
+  /** Clicking a subtask entry — resolves to opening the parent task/experiment. */
+  onSubtaskClick?: (subtask: SubtaskDueDate) => void;
 };
 
 type CalendarEvent = {
@@ -362,12 +378,14 @@ export function CalendarView({
   orders,
   experiments,
   projectedTasks,
+  subtaskDueDates,
   headerTitle,
   onTaskClick,
   onTaskUpdate,
   onOrderClick,
   onExperimentClick,
   onProjectedTaskClick,
+  onSubtaskClick,
 }: CalendarViewProps) {
   const [currentDate, setCurrentDate] = useState<Date>(() => {
     const today = getToday();
@@ -465,6 +483,21 @@ export function CalendarView({
 
     return map;
   }, [orders]);
+
+  // ── Subtask due dates keyed by day ───────────────────────────────────
+  const subtasksByDate = useMemo(() => {
+    const map = new Map<string, SubtaskDueDate[]>();
+    if (!subtaskDueDates) return map;
+    for (const s of subtaskDueDates) {
+      const d = new Date(s.dueDate.includes("T") ? s.dueDate : s.dueDate + "T00:00:00");
+      if (isNaN(d.getTime())) continue;
+      const key = toDateKey(d);
+      const arr = map.get(key) ?? [];
+      arr.push(s);
+      map.set(key, arr);
+    }
+    return map;
+  }, [subtaskDueDates]);
 
   // ── Projected recurring occurrences keyed by day ─────────────────────
   const projectedByDate = useMemo(() => {
@@ -703,7 +736,8 @@ export function CalendarView({
           const dayOrderEvents = orderEventsByDate.get(day.dateKey) ?? [];
           const dayExperiments = experimentsByDate.get(day.dateKey) ?? [];
           const dayProjected = projectedByDate.get(day.dateKey) ?? [];
-          const totalItems = dayTasks.length + dayOrderEvents.length + dayExperiments.length + dayProjected.length;
+          const daySubtasks = subtasksByDate.get(day.dateKey) ?? [];
+          const totalItems = dayTasks.length + dayOrderEvents.length + dayExperiments.length + dayProjected.length + daySubtasks.length;
           const visibleTasks = dayTasks.slice(0, maxVisibleTasks);
           const remainingSlots = Math.max(0, maxVisibleTasks - visibleTasks.length);
           const visibleOrderEvents = dayOrderEvents.slice(0, remainingSlots);
@@ -833,6 +867,36 @@ export function CalendarView({
                 {dayProjected.length > 2 && (
                   <div className="text-2xs italic text-muted-foreground px-2 opacity-60">
                     +{dayProjected.length - 2} recurring
+                  </div>
+                )}
+                {/* Subtask due dates — small indented entries with ↳ prefix */}
+                {daySubtasks.slice(0, 3).map((s) => (
+                  <div
+                    key={s.id}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSubtaskClick?.(s);
+                    }}
+                    className={cn(
+                      "flex items-center gap-1 pl-3 pr-1 py-0.5 rounded cursor-pointer hover:bg-elevated/50 transition",
+                      s.completed && "opacity-50"
+                    )}
+                    title={`Subtask${s.completed ? " (done)" : ""}: ${s.title}`}
+                  >
+                    <span className="text-[9px] text-muted-foreground leading-none">↳</span>
+                    <span
+                      className={cn(
+                        "text-[10px] leading-tight truncate",
+                        s.completed ? "line-through text-muted-foreground" : "text-muted-foreground"
+                      )}
+                    >
+                      {s.title}
+                    </span>
+                  </div>
+                ))}
+                {daySubtasks.length > 3 && (
+                  <div className="pl-3 text-[10px] text-muted-foreground/60">
+                    +{daySubtasks.length - 3} subtasks
                   </div>
                 )}
                 {overflowCount > 0 && (
