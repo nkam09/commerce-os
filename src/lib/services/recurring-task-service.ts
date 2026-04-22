@@ -11,48 +11,10 @@
  */
 import { prisma } from "@/lib/db/prisma";
 import type { RecurringTask } from "@prisma/client";
+import { computeNextRunDate } from "@/lib/types/recurring-task";
 
-/**
- * Compute the next run date given the current one and the frequency.
- * All date math is done in UTC to avoid DST drift.
- */
-export function computeNextRunDate(
-  fromDate: Date,
-  frequency: string,
-  intervalDays: number | null
-): Date {
-  const next = new Date(fromDate);
-  switch (frequency) {
-    case "DAILY":
-      next.setUTCDate(next.getUTCDate() + 1);
-      break;
-    case "WEEKLY":
-      next.setUTCDate(next.getUTCDate() + 7);
-      break;
-    case "BIWEEKLY":
-      next.setUTCDate(next.getUTCDate() + 14);
-      break;
-    case "MONTHLY":
-      next.setUTCMonth(next.getUTCMonth() + 1);
-      break;
-    case "QUARTERLY":
-      next.setUTCMonth(next.getUTCMonth() + 3);
-      break;
-    case "YEARLY":
-      next.setUTCFullYear(next.getUTCFullYear() + 1);
-      break;
-    case "CUSTOM":
-    default:
-      if (intervalDays && intervalDays > 0) {
-        next.setUTCDate(next.getUTCDate() + intervalDays);
-      } else {
-        // Fallback: advance one day so we don't infinite-loop on a bad row
-        next.setUTCDate(next.getUTCDate() + 1);
-      }
-      break;
-  }
-  return next;
-}
+// Re-export for backwards compatibility with any existing imports from this service file.
+export { computeNextRunDate };
 
 /**
  * Run all due recurring task templates for a user. Creates PMTask rows in the

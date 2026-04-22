@@ -15,6 +15,9 @@ type PMSidebarProps = {
   spaces: PMSpaceData[];
   selectedListId: string | null;
   selectedOrderId: string | null;
+  /** The space the user has explicitly selected (clicked the space name).
+   *  When set AND selectedListId is null, the app renders a space-wide view. */
+  selectedSpaceId?: string | null;
   ordersBySpace: Record<string, OrderSummary[]>;
   onSelectList: (listId: string) => void;
   onSelectOrder: (orderId: string, spaceId: string) => void;
@@ -32,6 +35,7 @@ export function PMSidebar({
   spaces,
   selectedListId,
   selectedOrderId,
+  selectedSpaceId,
   ordersBySpace,
   onSelectList,
   onSelectOrder,
@@ -105,17 +109,33 @@ export function PMSidebar({
       <div className="flex-1 py-2">
         {spaces.map((space) => {
           const isExpanded = expandedSpaces.has(space.id);
+          // Active when the user has explicitly selected this space AND no list
+          const isSpaceActive = selectedSpaceId === space.id && !selectedListId;
+          // Parent space of the active list — lighter highlight
+          const isParentOfActiveList = Boolean(
+            selectedListId && space.lists.some((l) => l.id === selectedListId)
+          );
           return (
             <div key={space.id}>
               {/* Space header */}
-              <div className="group flex items-center gap-2 px-3 py-1.5 hover:bg-elevated/50 transition">
+              <div
+                className={cn(
+                  "group flex items-center gap-2 px-3 py-1.5 transition",
+                  isSpaceActive
+                    ? "bg-primary/10"
+                    : isParentOfActiveList
+                      ? "bg-elevated/40"
+                      : "hover:bg-elevated/50"
+                )}
+              >
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation();
                     toggleSpace(space.id);
-                    onSelectSpace?.(space.id);
                   }}
                   className="rounded p-0.5 hover:bg-elevated transition text-muted-foreground"
+                  title={isExpanded ? "Collapse lists" : "Expand lists"}
                 >
                   <svg
                     viewBox="0 0 16 16"
@@ -156,9 +176,17 @@ export function PMSidebar({
                     className="text-xs font-medium text-foreground bg-elevated border border-border rounded px-1 outline-none focus:ring-1 focus:ring-primary flex-1 min-w-0"
                   />
                 ) : (
-                  <span className="text-xs font-medium text-foreground truncate flex-1">
+                  <button
+                    type="button"
+                    onClick={() => onSelectSpace?.(space.id)}
+                    className={cn(
+                      "text-xs font-medium truncate flex-1 text-left min-w-0 cursor-pointer",
+                      isSpaceActive ? "text-primary" : "text-foreground"
+                    )}
+                    title="View all activities in this space"
+                  >
                     {space.name}
-                  </span>
+                  </button>
                 )}
                 <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
                   <button

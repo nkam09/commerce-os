@@ -25,6 +25,8 @@ import type { ExperimentData } from "@/lib/types/experiment";
 import { ExperimentListView } from "./experiment-list-view";
 import { ExperimentForm } from "./experiment-form";
 import { RecurringTaskListView } from "./recurring-task-list-view";
+import { computeNextRunDate, type RecurringTaskData } from "@/lib/types/recurring-task";
+import type { ProjectedTask } from "./calendar-view";
 
 type ViewMode = "board" | "list" | "calendar" | "timeline" | "experiments" | "recurring";
 
@@ -116,6 +118,9 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
   const [editingExperiment, setEditingExperiment] = useState<ExperimentData | null>(null);
   const [showExperimentForm, setShowExperimentForm] = useState(false);
 
+  // ── Recurring tasks (for calendar projections) ──────────────────────────
+  const [recurringTasks, setRecurringTasks] = useState<RecurringTaskData[]>([]);
+
   const handleSelectList = useCallback((listId: string) => {
     setSelectedListId(listId);
     // Auto-close mobile sidebar after selection
@@ -154,6 +159,13 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
       .then((r) => r.json())
       .then((json) => {
         if (json.ok) setExperiments(json.data as ExperimentData[]);
+      })
+      .catch(() => {});
+    // Fetch all recurring tasks for calendar projections
+    fetch("/api/pm/recurring-tasks")
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.ok) setRecurringTasks(json.data as RecurringTaskData[]);
       })
       .catch(() => {});
   }
@@ -221,6 +233,110 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
     if (!selectedListId) return [];
     return localTasks.filter((t) => t.listId === selectedListId);
   }, [localTasks, selectedListId]);
+
+  // ── Unified "visible*" memos for the calendar ─────────────────────────────
+  //
+  // Space view   (selectedOrderSpaceId && !selectedListId):
+  //   Show ALL tasks across ALL lists in that space, plus all orders, plus
+  //   experiments linked to the space, plus projected recurring occurrences.
+  //
+  // List view    (selectedListId):
+  //   Show only that list's tasks, but still surface experiments for the
+  //   parent space and projected recurring occurrences whose list belongs
+  //   to that space (useful planning context).
+
+  /** Effective space id — what the calendar treats as "this space". */
+  const effectiveSpaceId = useMemo<string | null>(() => {
+    if (selectedListId) {
+      return localSpaces.find((s) => s.lists.some((l) => l.id === selectedListId))?.id ?? null;
+    }
+    return selectedOrderSpaceId;
+  }, [selectedListId, selectedOrderSpaceId, localSpaces]);
+
+  const visibleTasks = useMemo(() => {
+    if (selectedListId) {
+      return localTasks.filter((t) => t.listId === selectedListId);
+    }
+    if (effectiveSpaceId) {
+      const space = localSpaces.find((s) => s.id === effectiveSpaceId);
+      if (!space) return [];
+      const listIds = new Set(space.lists.map((l) => l.id));
+      return localTasks.filter((t) => listIds.has(t.listId));
+    }
+    return [];
+  }, [selectedListId, effectiveSpaceId, localTasks, localSpaces]);
+
+  const visibleOrders = useMemo<SupplierOrderData[]>(() => {
+    if (!effectiveSpaceId) return [];
+    return ordersBySpace[effectiveSpaceId] ?? [];
+  }, [effectiveSpaceId, ordersBySpace]);
+
+  const visibleExperiments = useMemo<ExperimentData[]>(() => {
+    if (!effectiveSpaceId) return [];
+    return experiments.filter((e) => e.spaceId === effectiveSpaceId);
+  }, [experiments, effectiveSpaceId]);
+
+  /** Project recurring tasks forward 3 months from today. Read-only entries. */
+  const visibleProjectedRecurring = useMemo<ProjectedTask[]>(() => {
+    if (!effectiveSpaceId) return [];
+    const space = localSpaces.find((s) => s.id === effectiveSpaceId);
+    if (!space) return [];
+    const listIds = new Set(space.lists.map((l) => l.id));
+
+    const now = new Date();
+    now.setUTCHours(0, 0, 0, 0);
+    const horizon = new Date(now);
+    horizon.setUTCMonth(horizon.getUTCMonth() + 3);
+
+    const projected: ProjectedTask[] = [];
+    for (const rt of recurringTasks) {
+      if (!rt.active) continue;
+      // In list view, only project recurring tasks that target this list.
+      if (selectedListId && rt.listId !== selectedListId) continue;
+      // In space view, require the recurring task's list to belong to this space.
+      if (!selectedListId && (!rt.listId || !listIds.has(rt.listId))) continue;
+
+      let cursor = new Date(rt.nextRunDate + "T00:00:00");
+      let safety = 0;
+      while (cursor <= horizon && safety < 50) {
+        if (cursor >= now) {
+          projected.push({
+            id: `projected-${rt.id}-${cursor.toISOString()}`,
+            title: rt.title,
+            dueDate: cursor.toISOString(),
+            listId: rt.listId ?? "",
+            recurringTaskId: rt.id,
+          });
+        }
+        cursor = computeNextRunDate(cursor, rt.frequency, rt.intervalDays);
+        safety++;
+      }
+    }
+    return projected;
+  }, [recurringTasks, effectiveSpaceId, selectedListId, localSpaces]);
+
+  /** Calendar header title showing current scope. */
+  const calendarTitle = useMemo(() => {
+    if (selectedListId) {
+      const space = localSpaces.find((s) => s.lists.some((l) => l.id === selectedListId));
+      const list = space?.lists.find((l) => l.id === selectedListId);
+      if (space && list) {
+        return `${space.name} › ${list.name} (${visibleTasks.length} task${visibleTasks.length === 1 ? "" : "s"})`;
+      }
+      return null;
+    }
+    if (effectiveSpaceId) {
+      const space = localSpaces.find((s) => s.id === effectiveSpaceId);
+      if (!space) return null;
+      const parts: string[] = [];
+      parts.push(`${visibleTasks.length} task${visibleTasks.length === 1 ? "" : "s"}`);
+      parts.push(`${visibleOrders.length} order${visibleOrders.length === 1 ? "" : "s"}`);
+      parts.push(`${visibleExperiments.length} experiment${visibleExperiments.length === 1 ? "" : "s"}`);
+      parts.push(`${visibleProjectedRecurring.length} recurring`);
+      return `${space.name} — All Activities (${parts.join(", ")})`;
+    }
+    return "Select a space or list";
+  }, [selectedListId, effectiveSpaceId, localSpaces, visibleTasks, visibleOrders, visibleExperiments, visibleProjectedRecurring]);
 
   // Get statuses for current list
   const statuses = useMemo(() => {
@@ -616,6 +732,7 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
           spaces={localSpaces}
           selectedListId={selectedListId}
           selectedOrderId={selectedOrderId}
+          selectedSpaceId={selectedOrderSpaceId}
           ordersBySpace={sidebarOrders}
           onSelectList={handleSelectListWrapped}
           onSelectOrder={handleSelectOrder}
@@ -832,13 +949,16 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
               />
             ) : viewMode === "calendar" ? (
               <CalendarView
-                tasks={[]}
-                orders={ordersForSelectedSpace}
-                experiments={experiments}
+                tasks={visibleTasks}
+                orders={visibleOrders}
+                experiments={visibleExperiments}
+                projectedTasks={visibleProjectedRecurring}
+                headerTitle={calendarTitle}
                 onTaskClick={handleTaskClick}
                 onTaskUpdate={handleTaskUpdate}
                 onOrderClick={handleOrderClick}
                 onExperimentClick={handleExperimentClick}
+                onProjectedTaskClick={() => setViewMode("recurring")}
               />
             ) : viewMode === "timeline" ? (
               <TimelineView
@@ -891,9 +1011,11 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
             />
           ) : viewMode === "calendar" ? (
             <CalendarView
-              tasks={tasksForList}
-              orders={ordersForSelectedSpace}
-              experiments={experiments}
+              tasks={visibleTasks}
+              orders={visibleOrders}
+              experiments={visibleExperiments}
+              projectedTasks={visibleProjectedRecurring}
+              headerTitle={calendarTitle}
               onTaskClick={handleTaskClick}
               onTaskUpdate={handleTaskUpdate}
               onOrderClick={handleOrderClick}
@@ -901,7 +1023,7 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
             />
           ) : viewMode === "experiments" ? (
             <div className="p-4">
-              <ExperimentListView spaceId={selectedOrderSpaceId ?? null} />
+              <ExperimentListView spaceId={effectiveSpaceId} />
             </div>
           ) : viewMode === "recurring" ? (
             <div className="p-4">
@@ -951,6 +1073,7 @@ export function ProjectManagerPage({ initialData }: ProjectManagerPageProps) {
       {showExperimentForm && (
         <ExperimentForm
           experiment={editingExperiment ?? undefined}
+          spaceId={effectiveSpaceId}
           onClose={() => {
             setShowExperimentForm(false);
             setEditingExperiment(null);

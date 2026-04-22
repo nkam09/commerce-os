@@ -2,7 +2,6 @@ import { NextRequest } from "next/server";
 import { requireUser } from "@/lib/auth/require-user";
 import { apiError, apiServerError, apiSuccess, apiUnauthorized } from "@/lib/utils/api";
 import { prisma } from "@/lib/db/prisma";
-import { computeNextRunDate } from "@/lib/services/recurring-task-service";
 import type { Prisma } from "@prisma/client";
 
 function serialize(rt: Prisma.RecurringTaskGetPayload<Record<string, never>>) {
@@ -96,9 +95,6 @@ export async function POST(req: NextRequest) {
         active: active === false ? false : true,
       },
     });
-
-    // Silence unused import if server-side helpers don't recompute here
-    void computeNextRunDate;
 
     return apiSuccess(serialize(rt));
   } catch (err) {

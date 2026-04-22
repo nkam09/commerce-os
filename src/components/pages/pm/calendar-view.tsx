@@ -10,14 +10,35 @@ import { EXPERIMENT_TYPE_COLOR } from "@/lib/types/experiment";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+/**
+ * A projected occurrence of a recurring task template. Read-only on the
+ * calendar — not backed by a real PMTask row until the worker fires it.
+ */
+export type ProjectedTask = {
+  /** Deterministic id like `projected-<rtId>-<isoDate>`, used only for React keys. */
+  id: string;
+  title: string;
+  /** ISO string (YYYY-MM-DDTHH:MM:SS.sssZ). */
+  dueDate: string;
+  /** List the template will create tasks in when it fires. */
+  listId: string;
+  /** Source recurring-task template id, used for the "edit template" jump. */
+  recurringTaskId: string;
+};
+
 type CalendarViewProps = {
   tasks: PMTaskData[];
   orders?: SupplierOrderData[];
   experiments?: ExperimentData[];
+  projectedTasks?: ProjectedTask[];
+  /** Optional context line rendered above the calendar header. */
+  headerTitle?: string | null;
   onTaskClick: (task: PMTaskData) => void;
   onTaskUpdate: (taskId: string, updates: Partial<PMTaskData>) => void;
   onOrderClick?: (order: SupplierOrderData) => void;
   onExperimentClick?: (experiment: ExperimentData) => void;
+  /** Clicking a projected task jumps to its recurring template. */
+  onProjectedTaskClick?: (recurringTaskId: string) => void;
 };
 
 type CalendarEvent = {
@@ -341,10 +362,13 @@ export function CalendarView({
   tasks,
   orders,
   experiments,
+  projectedTasks,
+  headerTitle,
   onTaskClick,
   onTaskUpdate,
   onOrderClick,
   onExperimentClick,
+  onProjectedTaskClick,
 }: CalendarViewProps) {
   const [currentDate, setCurrentDate] = useState<Date>(() => {
     const today = getToday();
@@ -442,6 +466,21 @@ export function CalendarView({
 
     return map;
   }, [orders]);
+
+  // ── Projected recurring occurrences keyed by day ─────────────────────
+  const projectedByDate = useMemo(() => {
+    const map = new Map<string, ProjectedTask[]>();
+    if (!projectedTasks) return map;
+    for (const p of projectedTasks) {
+      const d = new Date(p.dueDate);
+      if (isNaN(d.getTime())) continue;
+      const key = toDateKey(d);
+      const arr = map.get(key) ?? [];
+      arr.push(p);
+      map.set(key, arr);
+    }
+    return map;
+  }, [projectedTasks]);
 
   // ── Experiments active on each day ───────────────────────────────────
   // Each experiment spans startDate→endDate; we add a reference to each
@@ -550,6 +589,13 @@ export function CalendarView({
 
   return (
     <div className="flex flex-col h-full">
+      {/* ── Context title — shows what scope the calendar is displaying ─── */}
+      {headerTitle && (
+        <div className="px-1 pb-2">
+          <p className="text-xs text-muted-foreground">{headerTitle}</p>
+        </div>
+      )}
+
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-4 px-1 pb-4 flex-wrap">
         {/* Left: nav */}
@@ -657,7 +703,8 @@ export function CalendarView({
           const dayTasks = tasksByDate.get(day.dateKey) ?? [];
           const dayOrderEvents = orderEventsByDate.get(day.dateKey) ?? [];
           const dayExperiments = experimentsByDate.get(day.dateKey) ?? [];
-          const totalItems = dayTasks.length + dayOrderEvents.length + dayExperiments.length;
+          const dayProjected = projectedByDate.get(day.dateKey) ?? [];
+          const totalItems = dayTasks.length + dayOrderEvents.length + dayExperiments.length + dayProjected.length;
           const visibleTasks = dayTasks.slice(0, maxVisibleTasks);
           const remainingSlots = Math.max(0, maxVisibleTasks - visibleTasks.length);
           const visibleOrderEvents = dayOrderEvents.slice(0, remainingSlots);
@@ -767,6 +814,28 @@ export function CalendarView({
                     </span>
                   </div>
                 ))}
+                {/* Projected recurring occurrences — read-only, distinct styling */}
+                {dayProjected.slice(0, 2).map((p) => (
+                  <div
+                    key={p.id}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onProjectedTaskClick?.(p.recurringTaskId);
+                    }}
+                    className="flex items-center gap-1.5 px-2 py-0.5 rounded-md cursor-pointer border border-dashed border-border/60 bg-transparent opacity-60 hover:opacity-100 hover:border-primary/50 transition"
+                    title={`Recurring (projected): ${p.title}`}
+                  >
+                    <RepeatIcon />
+                    <span className="text-2xs italic text-muted-foreground truncate leading-tight">
+                      {p.title}
+                    </span>
+                  </div>
+                ))}
+                {dayProjected.length > 2 && (
+                  <div className="text-2xs italic text-muted-foreground px-2 opacity-60">
+                    +{dayProjected.length - 2} recurring
+                  </div>
+                )}
                 {overflowCount > 0 && (
                   <button
                     onClick={(e) => {
@@ -833,6 +902,27 @@ function ChevronRightIcon() {
       strokeLinejoin="round"
     >
       <polyline points="9 18 15 12 9 6" />
+    </svg>
+  );
+}
+
+function RepeatIcon() {
+  return (
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="shrink-0 text-muted-foreground"
+    >
+      <polyline points="17 1 21 5 17 9" />
+      <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+      <polyline points="7 23 3 19 7 15" />
+      <path d="M21 13v2a4 4 0 0 1-4 4H3" />
     </svg>
   );
 }
